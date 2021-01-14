@@ -1,0 +1,19 @@
+[package]
+name = "manali-lang"
+version = "0.1.0"
+authors = ["Eli W. Hunter <elihunter173@gmail.com>"]
+edition = "2018"
+
+[build-dependencies]
+lalrpop = "0.19"
+
+[dependencies]
+thiserror = "1.0"
+num_enum = "0.5"
+byteorder = "1.4"
+# Parser
+lalrpop-util = "0.19"
+regex = "1"
+bumpalo = { version = "3.4", features = ["boxed", "collections"] }
+# Repl
+rustyline = "7.1"
