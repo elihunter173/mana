@@ -1,7 +1,7 @@
 use std::convert::TryInto;
 
 use crate::{
-    ast::{BinOp, Expr, Stmt},
+    ast::{BinOp, Expr, Ident, Stmt},
     bytecode::OpCode,
     types::Value,
 };
@@ -52,9 +52,33 @@ impl Compile for Expr<'_> {
                 right.compile(comp);
                 op.compile(comp);
             }
-            Expr::Typeof(expr) => {
-                expr.compile(comp);
-                comp.code.push(OpCode::Typeof.into());
+            Expr::Ident(_) => {
+                panic!("unsupported currently");
+            }
+            Expr::FnCall(Ident(name), args) => {
+                assert!(args.len() == 1);
+                let arg = &args[0];
+                match *name {
+                    "print" => {
+                        arg.compile(comp);
+                        comp.code.push(OpCode::Print.into());
+                    }
+                    "typeof" => {
+                        arg.compile(comp);
+                        comp.code.push(OpCode::Typeof.into());
+                    }
+                    _ => {
+                        panic!("unknown function");
+                    }
+                }
+            }
+            Expr::Block { stmts, expr } => {
+                for stmt in stmts {
+                    stmt.compile(comp);
+                }
+                if let Some(expr) = expr {
+                    expr.compile(comp);
+                }
             }
         }
     }
@@ -63,9 +87,8 @@ impl Compile for Expr<'_> {
 impl Compile for Stmt<'_> {
     fn compile(&self, comp: &mut Compiler) {
         match self {
-            Stmt::Print(expr) => {
+            Stmt::Expr(expr) => {
                 expr.compile(comp);
-                comp.code.push(OpCode::Print.into());
             }
         }
     }

@@ -11,9 +11,11 @@ lalrpop = "0.19"
 thiserror = "1.0"
 num_enum = "0.5"
 byteorder = "1.4"
+once_cell = "1.5"
 # Parser
 lalrpop-util = "0.19"
 regex = "1"
 bumpalo = { version = "3.4", features = ["boxed", "collections"] }
 # Repl
 rustyline = "7.1"
+clap = { version = "3.0.0-beta.2", features = ["yaml"] }

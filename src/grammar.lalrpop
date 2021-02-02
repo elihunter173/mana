@@ -1,20 +1,15 @@
 use std::str::FromStr;
 
-// use bumpalo::{Bump, boxed::Box as BumpBox, collections::Vec as BumpVec};
-use bumpalo::{boxed::Box as BumpBox, Bump};
+use bumpalo::{boxed::Box as BumpBox, collections::Vec as BumpVec, Bump};
 
-use crate::{ast::{BinOp, Expr, Stmt}, types::Value};
+use crate::{ast::{UnaryOp, BinOp, Block, Expr, Ident}, types::Value};
 
-grammar<'bump>(bump: &'bump Bump);
+// XXX: I have things I test marked as pub(crate)
 
-pub Stmts = Stmt*;
+grammar(bump: &'input Bump);
 
-pub Stmt: Stmt<'bump> = {
-    "print" "(" <Expr> ")" => Stmt::Print(<>),
-};
-
-Comma<T>: BumpVec<'bump, T> = {
-    <v:(<T> ",")*> <e:T?> => {
+Delimited<T, Delimiter>: BumpVec<'input, T> = {
+    <v:(<T> Delimiter)*> <e:T?> => {
         let mut v = BumpVec::from_iter_in(v, bump);
         if let Some(e) = e {
             v.push(e);
@@ -23,40 +18,139 @@ Comma<T>: BumpVec<'bump, T> = {
     }
 };
 
-pub Expr: Expr<'bump> = {
-    "typeof" "(" <Expr> ")" => Expr::Typeof(BumpBox::new_in(<>, bump)),
-    Expr0,
+Comma<T> = Delimited<T, ",">;
+
+pub Program = Stmt*;
+
+pub Stmt = <Expr> ";";
+
+pub Expr: Expr<'input> = {
+    ExprP0,
+    Block => Expr::Block(<>),
+    If,
+    FunctionCall,
+    Let,
+    Set,
 };
 
-ExprTier<Op, NextTier>: Expr<'bump> = {
+Block: Block<'input> = {
+    "{" <stmts:Stmt*> "}" => {
+        let stmts = stmts.into_iter().map(|x| BumpBox::new_in(x, bump));
+        BumpVec::from_iter_in(stmts, bump)
+    },
+};
+
+If: Expr<'input> = {
+    "if" <cond:Expr> <true_block:Block> => {
+        Expr::If {
+            cond: BumpBox::new_in(cond, bump),
+            true_expr: BumpBox::new_in(Expr::Block(true_block), bump),
+            false_expr: None,
+        }
+    },
+    "if" <cond:Expr> <true_block:Block> "else" <elif:If> => {
+        Expr::If {
+            cond: BumpBox::new_in(cond, bump),
+            true_expr: BumpBox::new_in(Expr::Block(true_block), bump),
+            false_expr: Some(BumpBox::new_in(elif, bump)),
+        }
+    },
+    "if" <cond:Expr> <true_block:Block> "else" <false_block:Block> => {
+        Expr::If {
+            cond: BumpBox::new_in(cond, bump),
+            true_expr: BumpBox::new_in(Expr::Block(true_block), bump),
+            false_expr: Some(BumpBox::new_in(Expr::Block(false_block), bump)),
+        }
+    },
+};
+
+FunctionCall: Expr<'input> = {
+    <Ident> "(" <Comma<Expr>> ")" => Expr::FnCall(<>),
+};
+
+Let: Expr<'input> = {
+    "let" <id:Ident> "=" <e:Expr> => Expr::Let(id, BumpBox::new_in(e, bump)),
+};
+
+Set: Expr<'input> = {
+    <id:Ident> "=" <e:Expr> => Expr::Set(id, BumpBox::new_in(e, bump)),
+};
+
+ExprTier<Op, NextTier>: Expr<'input> = {
     <l:ExprTier<Op, NextTier>> <op:Op> <r:NextTier> => {
         Expr::Binary(op, BumpBox::new_in(l, bump), BumpBox::new_in(r, bump))
     },
     NextTier,
 };
-Expr0 = ExprTier<Op0, Expr1>;
-Op0: BinOp = {
+
+// TODO: Work in "and" and "or" but make it an error for them to be used at the
+// same precedance
+ExprP0 = ExprTier<OpP0, ExprP1>;
+OpP0: BinOp = {
     "==" => BinOp::Eq,
     "!=" => BinOp::Neq,
 };
-Expr1 = ExprTier<Op1, Expr2>;
-Op1: BinOp = {
+
+ExprP1: Expr<'input> = {
+    <l:ExprP1> <op:OpP1> <r:ExprP2> => {
+        Expr::Binary(op, BumpBox::new_in(l, bump), BumpBox::new_in(r, bump))
+    },
+    // Don't let logical operators be on the same level
+    <l:ExprP2> <op:LogicalOp> <r:ExprP2> => {
+        Expr::Binary(op, BumpBox::new_in(l, bump), BumpBox::new_in(r, bump))
+    },
+    ExprP2,
+};
+LogicalOp: BinOp = {
+    "and" => BinOp::Land,
+    "or" => BinOp::Lor,
+};
+OpP1: BinOp = {
     "+" => BinOp::Add,
     "-" => BinOp::Sub,
 };
-Expr2 = ExprTier<Op2, Atom>;
-Op2: BinOp = {
+
+ExprP2 = ExprTier<OpP2, UnaryExpr>;
+OpP2: BinOp = {
     "*" => BinOp::Mul,
     "/" => BinOp::Div,
 };
 
-Atom: Expr<'bump> = {
-    Literal => Expr::Literal(<>),
+UnaryExpr = {
+    "-" <a:Atom> => Expr::Unary(UnaryOp::Neg, BumpBox::new_in(a, bump)),
+    Atom,
+}
+
+Atom: Expr<'input> = {
+    Literal,
+    Ident => Expr::Ident(<>),
     "(" <Expr> ")",
 };
 
-Literal: Value = {
-    r"[0-9]+(\.[0-9]+)?" => Value::Number(f64::from_str(<>).unwrap()),
-    "true" => Value::Bool(true),
-    "false" => Value::Bool(false),
-}
+Ident: Ident<'input> = {
+    r"[a-zA-Z_][0-9a-zA-Z_]*" => Ident(<>),
+};
+
+pub(crate) Literal: Expr<'input> = {
+    Number => Expr::Literal(Value::Number(<>)),
+    Bool => Expr::Literal(Value::Bool(<>)),
+    String => Expr::Literal(Value::String(<>)),
+};
+
+Number: f64 = {
+    r"[0-9]+(\.[0-9]+)?" => f64::from_str(<>).unwrap(),
+};
+
+Bool: bool = {
+    "true" => true,
+    "false" => false,
+};
+
+String: String = {
+    <x:r#""([^\\"]|\\")*""#> => {
+        let s = &x[1..(x.len() - 1)];
+        // Unescape quotes
+        let s = s.replace("\\\"", "\"");
+        s
+    }
+};
