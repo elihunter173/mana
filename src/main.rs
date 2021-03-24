@@ -5,6 +5,7 @@ use clap::clap_app;
 use lalrpop_util::lalrpop_mod;
 use rustyline::{error::ReadlineError, Editor};
 
+mod jit;
 mod ast;
 mod bytecode;
 // mod compile;
