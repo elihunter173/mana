@@ -204,18 +204,21 @@ impl<'a> FunctionTranslator<'a> {
 
             // Expr::Call(name, args) => self.translate_call(name, args),
             // Expr::GlobalDataAddr(name) => self.translate_global_data_addr(name),
-            Expr::Ident(Ident(name)) => {
+            Expr::Ident(ident) => {
                 // `use_var` is used to read the value of a variable.
-                let variable = self.variables.get(*name).expect("variable not defined");
+                let variable = self
+                    .variables
+                    .get(ident.name)
+                    .expect("variable not defined");
                 self.builder.use_var(*variable)
             }
 
-            Expr::Let(Ident(name), expr) | Expr::Set(Ident(name), expr) => {
+            Expr::Let(ident, expr) | Expr::Set(ident, expr) => {
                 // `def_var` is used to write the value of a variable. Note that variables can have
                 // multiple definitions. Cranelift will convert them into SSA form for itself
                 // automatically.
                 let new_value = self.translate_expr(expr);
-                let variable = self.variables.get(*name).unwrap();
+                let variable = self.variables.get(ident.name).unwrap();
                 self.builder.def_var(*variable, new_value);
                 new_value
             }
@@ -384,10 +387,10 @@ fn declare_variables_in_expr(
     index: &mut usize,
     expr: &Expr,
 ) {
-    if let Expr::Let(Ident(&ref name), _expr) = expr {
+    if let Expr::Let(ident, _expr) = expr {
         let var = Variable::new(*index);
-        if !variables.contains_key(name) {
-            variables.insert(name.to_owned(), var);
+        if !variables.contains_key(ident.name) {
+            variables.insert(ident.name.to_owned(), var);
             builder.declare_var(var, int);
             *index += 1;
         }

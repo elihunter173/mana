@@ -5,7 +5,9 @@ use crate::types::ManaliType;
 type BoxExpr<'ast> = Box<'ast, Expr<'ast>>;
 
 #[derive(Debug, PartialEq)]
-pub struct Ident<'ast>(pub &'ast str);
+pub struct Ident<'ast> {
+    pub name: &'ast str,
+}
 
 pub type Block<'ast> = Vec<'ast, BoxExpr<'ast>>;
 

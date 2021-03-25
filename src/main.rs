@@ -35,7 +35,6 @@ fn main() {
         let file = File::open(path).unwrap();
         parse_and_print(file);
     } else if let Some(ref matches) = matches.subcommand_matches("run") {
-        let f = File::open(matches.value_of("INPUT").unwrap()).unwrap();
         let path = matches.value_of("INPUT").unwrap();
         let file = File::open(path).unwrap();
         run(file);
