@@ -7,9 +7,8 @@ use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataContext, Linkage, Module};
 
 use crate::{
-    ast::{BinOp, Expr, Ident},
+    ast::{BinOp, Expr, Ident, ManaliType},
     grammar::ProgramParser,
-    types::ManaliType,
 };
 
 /// The basic JIT class.

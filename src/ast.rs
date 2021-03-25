@@ -1,6 +1,31 @@
 use bumpalo::{boxed::Box, collections::Vec};
 
-use crate::types::ManaliType;
+#[derive(Debug, PartialEq)]
+pub enum ManaliType {
+    Bool(bool),
+    Number(f64),
+    String(String),
+}
+
+type Literal = ManaliType;
+
+impl From<bool> for ManaliType {
+    fn from(v: bool) -> Self {
+        Self::Bool(v)
+    }
+}
+
+impl From<f64> for ManaliType {
+    fn from(v: f64) -> Self {
+        Self::Number(v)
+    }
+}
+
+impl From<&str> for ManaliType {
+    fn from(v: &str) -> Self {
+        Self::String(v.to_owned())
+    }
+}
 
 type BoxExpr<'ast> = Box<'ast, Expr<'ast>>;
 
@@ -9,7 +34,18 @@ pub struct Ident<'ast> {
     pub name: &'ast str,
 }
 
+#[derive(Debug)]
+pub struct TypePath<'ast> {
+    pub paths: Vec<'ast, Ident<'ast>>,
+}
+
 pub type Block<'ast> = Vec<'ast, BoxExpr<'ast>>;
+
+// Is this a good way to do things?
+// pub struct Expr {
+//   typ: Type,
+//   kind: ExprKind,
+// }
 
 #[derive(Debug, PartialEq)]
 pub enum Expr<'ast> {

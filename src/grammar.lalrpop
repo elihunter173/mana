@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use bumpalo::{boxed::Box as BumpBox, collections::Vec as BumpVec, Bump};
 
-use crate::{ast::{UnaryOp, BinOp, Block, Expr, Ident}, types::ManaliType};
+use crate::ast::{UnaryOp, BinOp, Block, Expr, Ident, TypePath, ManaliType};
 
 // XXX: I have things I test marked as pub(crate)
 
@@ -69,7 +69,9 @@ FunctionCall: Expr<'input> = {
 };
 
 Let: Expr<'input> = {
-    "let" <id:Ident> "=" <e:Expr> => Expr::Let(id, BumpBox::new_in(e, bump)),
+    "let" <id:Ident> <typ:(":" <TypePath>)?> "=" <e:Expr> => {
+        Expr::Let(id, BumpBox::new_in(e, bump))
+    },
 };
 
 Set: Expr<'input> = {
@@ -129,6 +131,14 @@ Atom: Expr<'input> = {
 
 Ident: Ident<'input> = {
     r"[a-zA-Z_][0-9a-zA-Z_]*" => Ident { name: <> },
+};
+
+TypePath: TypePath<'input> = {
+    <parents:(<Ident> ".")*> <typ:Ident> => {
+        let mut v = BumpVec::from_iter_in(parents.into_iter(), bump);
+        v.push(typ);
+        TypePath { paths: v }
+    },
 };
 
 pub(crate) Literal: Expr<'input> = {
