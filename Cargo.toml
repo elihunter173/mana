@@ -8,11 +8,12 @@ edition = "2018"
 lalrpop = "0.19"
 
 [dependencies]
-thiserror = "1.0"
+# Lazy error handling
 anyhow = "1.0"
-num_enum = "0.5"
-byteorder = "1.4"
-once_cell = "1.5"
+
+# For Literal BigInt
+num = "0.4"
+
 # Parser
 lalrpop-util = "0.19"
 regex = "1"

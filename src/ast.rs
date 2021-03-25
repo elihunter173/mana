@@ -1,9 +1,11 @@
 use bumpalo::{boxed::Box, collections::Vec};
+use num::BigInt;
 
 #[derive(Debug, PartialEq)]
 pub enum Literal {
     Bool(bool),
-    Int(isize),
+    // TODO: Maybe use i128 since we only support up to (U)Int64?
+    Int(BigInt),
     Float(f64),
     String(String),
 }
@@ -146,9 +148,13 @@ mod tests {
         (bool_true, "true", true),
         (bool_false, "false", false),
 
-        (num_int, "1", 1.0),
-        (num_float, "1.0", 1.0),
-        (num_pos_zero, "0", 0.0),
+        (int, "1", 1),
+        (int_zero, "0", 0),
+        (int_hex, "0xDEADbeef", 0xDEADBEEF),
+        (int_oct, "0o76543210", 0o76543210),
+        (int_bin, "0b01011111", 0b0101_1111),
+
+        (float, "1.0", 1.0),
 
         (str_basic, r#""Hello, World!""#, "Hello, World!"),
         (str_escape, r#""The cowboy said \"Howdy!\" and then walked away""#, r#"The cowboy said "Howdy!" and then walked away"#),
