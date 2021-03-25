@@ -150,9 +150,13 @@ mod tests {
 
         (int, "1", 1),
         (int_zero, "0", 0),
+        (int_underscore, "1_000", 1),
         (int_hex, "0xDEADbeef", 0xDEADBEEF),
+        (int_hex_underscore, "0x__123__abc_", 0x123_abc),
         (int_oct, "0o76543210", 0o76543210),
-        (int_bin, "0b01011111", 0b0101_1111),
+        (int_oct_underscore, "0o100_644", 0o100_644),
+        (int_bin, "0b0101", 0b0101),
+        (int_bin_underscore, "0b0101_1111", 0b0101_1111),
 
         (float, "1.0", 1.0),
 
