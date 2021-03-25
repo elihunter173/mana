@@ -7,7 +7,7 @@ use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataContext, Linkage, Module};
 
 use crate::{
-    ast::{BinOp, Expr, Ident, Literal},
+    ast::{BinOp, Expr, Literal},
     grammar::ProgramParser,
 };
 

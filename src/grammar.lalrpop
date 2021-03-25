@@ -1,7 +1,6 @@
 use std::str::FromStr;
 
 use bumpalo::{boxed::Box as BumpBox, collections::Vec as BumpVec, Bump};
-use num::{BigInt, Num};
 
 use crate::ast::{UnaryOp, BinOp, Block, Expr, Ident, TypePath, Literal};
 
@@ -23,9 +22,9 @@ Comma<T> = Delimited<T, ",">;
 
 pub Program = Stmt*;
 
-pub Stmt = <Expr> ";";
+Stmt = <Expr> ";";
 
-pub Expr: Expr<'input> = {
+Expr: Expr<'input> = {
     ExprP0,
     Block => Expr::Block(<>),
     If,
@@ -152,19 +151,10 @@ pub(crate) Literal: Expr<'input> = {
 // TODO: Support underscores and trailing types to specify the type of the
 // expression
 Int: Literal = {
-    r"[0-9][_0-9]*" => Literal::Int(BigInt::from_str_radix(<>, 10).unwrap()),
-    r"0x[_0-9a-fA-F]*[0-9a-fA-F][0-9a-fA-F]*" => {
-        let digits = &<>[2..];
-        Literal::Int(BigInt::from_str_radix(digits, 16).unwrap())
-    },
-    r"0o[0-7]+" => {
-        let digits = &<>[2..];
-        Literal::Int(BigInt::from_str_radix(digits, 8).unwrap())
-    },
-    r"0b[01]+" => {
-        let digits = &<>[2..];
-        Literal::Int(BigInt::from_str_radix(digits, 2).unwrap())
-    },
+    r"[0-9][_0-9]*" => Literal::parse_int(<>, 10),
+    r"0x[_0-9a-fA-F]*[0-9a-fA-F][0-9a-fA-F]*" => Literal::parse_int(&<>[2..], 16),
+    r"0o[_0-7]*[0-7][_0-7]*" => Literal::parse_int(&<>[2..], 8),
+    r"0b[_01]*[01][_01]*" => Literal::parse_int(&<>[2..], 8),
 }
 
 Float: Literal = {

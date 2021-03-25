@@ -1,5 +1,5 @@
 use bumpalo::{boxed::Box, collections::Vec};
-use num::BigInt;
+use num::{Num, BigInt};
 
 #[derive(Debug, PartialEq)]
 pub enum Literal {
@@ -8,6 +8,12 @@ pub enum Literal {
     Int(BigInt),
     Float(f64),
     String(String),
+}
+
+impl Literal {
+    pub fn parse_int(digits: &str, radix: u32) -> Self {
+        Self::Int(BigInt::from_str_radix(digits, radix).unwrap())
+    }
 }
 
 type BoxExpr<'ast> = Box<'ast, Expr<'ast>>;
@@ -68,6 +74,7 @@ pub enum Expr<'ast> {
 }
 
 impl<'ast> Expr<'ast> {
+    // TODO: Find a better way to do this
     pub fn apply_children<F>(&self, mut f: F)
     where
         F: FnMut(&Expr),
