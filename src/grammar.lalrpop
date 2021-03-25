@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use bumpalo::{boxed::Box as BumpBox, collections::Vec as BumpVec, Bump};
 
-use crate::{ast::{UnaryOp, BinOp, Block, Expr, Ident}, types::Value};
+use crate::{ast::{UnaryOp, BinOp, Block, Expr, Ident}, types::ManaliType};
 
 // XXX: I have things I test marked as pub(crate)
 
@@ -132,9 +132,9 @@ Ident: Ident<'input> = {
 };
 
 pub(crate) Literal: Expr<'input> = {
-    Number => Expr::Literal(Value::Number(<>)),
-    Bool => Expr::Literal(Value::Bool(<>)),
-    String => Expr::Literal(Value::String(<>)),
+    Number => Expr::Literal(ManaliType::Number(<>)),
+    Bool => Expr::Literal(ManaliType::Bool(<>)),
+    String => Expr::Literal(ManaliType::String(<>)),
 };
 
 Number: f64 = {

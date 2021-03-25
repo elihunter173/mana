@@ -1,6 +1,6 @@
 use bumpalo::{boxed::Box, collections::Vec};
 
-use crate::types::Value;
+use crate::types::ManaliType;
 
 type BoxExpr<'ast> = Box<'ast, Expr<'ast>>;
 
@@ -12,7 +12,7 @@ pub type Block<'ast> = Vec<'ast, BoxExpr<'ast>>;
 #[derive(Debug, PartialEq)]
 pub enum Expr<'ast> {
     Ident(Ident<'ast>),
-    Literal(Value),
+    Literal(ManaliType),
     Binary(BinOp, BoxExpr<'ast>, BoxExpr<'ast>),
     Unary(UnaryOp, BoxExpr<'ast>),
 
@@ -26,6 +26,36 @@ pub enum Expr<'ast> {
         true_expr: BoxExpr<'ast>,
         false_expr: Option<BoxExpr<'ast>>,
     },
+}
+
+impl<'ast> Expr<'ast> {
+    pub fn apply_children<F>(&self, mut f: F)
+    where
+        F: FnMut(&Expr),
+    {
+        use Expr::*;
+        match self {
+            Ident(_) | Literal(_) => {}
+            Binary(_, l, r) => {
+                f(l);
+                f(r);
+            }
+            Unary(_, x) | Let(_, x) | Set(_, x) => {
+                f(x);
+            }
+            If {
+                cond: _,
+                true_expr,
+                false_expr,
+            } => {
+                f(true_expr);
+                if let Some(false_expr) = false_expr {
+                    f(false_expr);
+                }
+            }
+            _ => unimplemented!(),
+        }
+    }
 }
 
 #[derive(Debug, Eq, PartialEq)]

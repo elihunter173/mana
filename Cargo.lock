@@ -529,6 +529,7 @@ dependencies = [
 name = "manali-lang"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bumpalo",
  "byteorder",
  "clap",

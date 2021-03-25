@@ -9,6 +9,7 @@ lalrpop = "0.19"
 
 [dependencies]
 thiserror = "1.0"
+anyhow = "1.0"
 num_enum = "0.5"
 byteorder = "1.4"
 once_cell = "1.5"

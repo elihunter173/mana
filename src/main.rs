@@ -1,3 +1,11 @@
+mod ast;
+mod bytecode;
+mod jit;
+// mod compile;
+// mod interpreter;
+mod types;
+lalrpop_mod!(pub grammar);
+
 use std::{fs::File, io::Read};
 
 use bumpalo::Bump;
@@ -5,15 +13,8 @@ use clap::clap_app;
 use lalrpop_util::lalrpop_mod;
 use rustyline::{error::ReadlineError, Editor};
 
-mod jit;
-mod ast;
-mod bytecode;
-// mod compile;
-// mod interpreter;
-mod types;
-lalrpop_mod!(pub grammar);
-
 use crate::grammar::ProgramParser;
+use crate::jit::JIT;
 
 fn main() {
     // TODO: Switch to structopt version???
@@ -25,18 +26,28 @@ fn main() {
             (about: "Parse .mnl file")
             (@arg INPUT: +required "Sets the input file to use")
         )
+        (@subcommand run =>
+            (about: "Run .mnl file")
+            (@arg INPUT: +required "Sets the input file to use")
+        )
     )
     .get_matches();
 
     if let Some(ref matches) = matches.subcommand_matches("parse") {
+        let path = matches.value_of("INPUT").unwrap();
+        let file = File::open(path).unwrap();
+        parse_and_print(file);
+    } else if let Some(ref matches) = matches.subcommand_matches("run") {
         let f = File::open(matches.value_of("INPUT").unwrap()).unwrap();
-        run(f);
+        let path = matches.value_of("INPUT").unwrap();
+        let file = File::open(path).unwrap();
+        run(file);
     } else {
         repl();
     }
 }
 
-fn run(mut f: File) {
+fn parse_and_print(mut f: File) {
     let mut program = String::new();
     f.read_to_string(&mut program).unwrap();
     let parser = ProgramParser::new();
@@ -48,6 +59,17 @@ fn run(mut f: File) {
         }
         Err(err) => println!("Error: {}", err),
     };
+}
+
+fn run(mut f: File) {
+    let mut code = String::new();
+    f.read_to_string(&mut code).unwrap();
+    let mut jit = JIT::new();
+    let code_ptr = jit.compile(&code).unwrap();
+    // SAFETY: Whee! Hopefully the JIT compiler actually did compile to an arg-less and
+    // return-value-less procedure
+    let code_fn = unsafe { std::mem::transmute::<_, fn() -> f64>(code_ptr) };
+    println!("{}", code_fn());
 }
 
 fn repl() {

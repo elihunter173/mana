@@ -1,5 +1,3 @@
-let a = if true {
-    print("We're in here now...", "so that's cool", true);
-    let c = (123 - 3) / 4 + 2;
-    c;
-};
+let pi = 3.14159;
+let r = 5.0;
+let ret = pi*r*r;
