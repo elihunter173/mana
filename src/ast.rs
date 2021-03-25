@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use bumpalo::{boxed::Box, collections::Vec};
 use num::{BigInt, Zero};
 
@@ -27,6 +29,12 @@ impl Literal {
         }
 
         Self::Int(num)
+    }
+
+    pub fn parse_float(input: &str) -> Self {
+        // TODO: Use better parsing logic
+        let input = input.replace("_", "");
+        Literal::Float(f64::from_str(&input).unwrap())
     }
 }
 
@@ -170,6 +178,11 @@ mod tests {
         (int_bin_underscore, "0b0101_1111", 0b0101_1111),
 
         (float, "1.0", 1.0),
+        (float_underscore, "1_000.0", 1_000.0),
+        (float_e, "1e-06", 1e-06),
+        (float_e_cap, "1E-06", 1E-06),
+        (float_e_underscore, "1_000.123_456e+3", 1_000.123_456e+3),
+        // TODO: Add tests for infinity and NaN
 
         (str_basic, r#""Hello, World!""#, "Hello, World!"),
         (str_escape, r#""The cowboy said \"Howdy!\" and then walked away""#, r#"The cowboy said "Howdy!" and then walked away"#),
