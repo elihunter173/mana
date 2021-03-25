@@ -1,33 +1,32 @@
 use bumpalo::{boxed::Box, collections::Vec};
 
 #[derive(Debug, PartialEq)]
-pub enum ManaliType {
+pub enum Literal {
     Bool(bool),
-    Number(f64),
+    Int(isize),
+    Float(f64),
     String(String),
 }
 
-type Literal = ManaliType;
-
-impl From<bool> for ManaliType {
-    fn from(v: bool) -> Self {
-        Self::Bool(v)
-    }
-}
-
-impl From<f64> for ManaliType {
-    fn from(v: f64) -> Self {
-        Self::Number(v)
-    }
-}
-
-impl From<&str> for ManaliType {
-    fn from(v: &str) -> Self {
-        Self::String(v.to_owned())
-    }
-}
-
 type BoxExpr<'ast> = Box<'ast, Expr<'ast>>;
+
+macro_rules! literal_from {
+    ( $( ($variant:ident $ty:ty) )* ) => {$(
+        impl From<$ty> for Literal {
+            fn from(v: $ty) -> Self {
+                Self::$variant(v.into())
+            }
+        }
+    )*};
+}
+
+// TODO: Remove this and just improve tests
+literal_from!(
+    (Bool bool)
+    (Int isize)
+    (Float f64)
+    (String &str)
+);
 
 #[derive(Debug, PartialEq)]
 pub struct Ident<'ast> {
@@ -50,7 +49,7 @@ pub type Block<'ast> = Vec<'ast, BoxExpr<'ast>>;
 #[derive(Debug, PartialEq)]
 pub enum Expr<'ast> {
     Ident(Ident<'ast>),
-    Literal(ManaliType),
+    Literal(Literal),
     Binary(BinOp, BoxExpr<'ast>, BoxExpr<'ast>),
     Unary(UnaryOp, BoxExpr<'ast>),
 
@@ -188,11 +187,11 @@ mod tests {
         let got = ExprParser::new().parse(&alloc, "1 + 2 * 3 / (4 - 5)");
         let want = Ok(Binary(
             Add,
-            b(Literal(1.0.into())),
+            b(Literal(1.into())),
             b(Binary(
                 Div,
-                b(Binary(Mul, b(Literal(2.0.into())), b(Literal(3.0.into())))),
-                b(Binary(Sub, b(Literal(4.0.into())), b(Literal(5.0.into())))),
+                b(Binary(Mul, b(Literal(2.into())), b(Literal(3.into())))),
+                b(Binary(Sub, b(Literal(4.into())), b(Literal(5.into())))),
             )),
         ));
         assert_eq!(got, want);

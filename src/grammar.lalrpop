@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use bumpalo::{boxed::Box as BumpBox, collections::Vec as BumpVec, Bump};
 
-use crate::ast::{UnaryOp, BinOp, Block, Expr, Ident, TypePath, ManaliType};
+use crate::ast::{UnaryOp, BinOp, Block, Expr, Ident, TypePath, Literal};
 
 // XXX: I have things I test marked as pub(crate)
 
@@ -142,25 +142,30 @@ TypePath: TypePath<'input> = {
 };
 
 pub(crate) Literal: Expr<'input> = {
-    Number => Expr::Literal(ManaliType::Number(<>)),
-    Bool => Expr::Literal(ManaliType::Bool(<>)),
-    String => Expr::Literal(ManaliType::String(<>)),
+    Float => Expr::Literal(<>),
+    Bool => Expr::Literal(<>),
+    String => Expr::Literal(<>),
 };
 
-Number: f64 = {
-    r"[0-9]+(\.[0-9]+)?" => f64::from_str(<>).unwrap(),
+// TODO: Support any size of Int
+Int: Literal = {
+    r"[0-9]+" => Literal::Int(isize::from_str(<>).unwrap()),
+}
+
+Float: Literal = {
+    r"[0-9]+\.[0-9]+" => Literal::Float(f64::from_str(<>).unwrap()),
 };
 
-Bool: bool = {
-    "true" => true,
-    "false" => false,
+Bool: Literal = {
+    "true" => Literal::Bool(true),
+    "false" => Literal::Bool(false),
 };
 
-String: String = {
+String: Literal = {
     <x:r#""([^\\"]|\\")*""#> => {
         let s = &x[1..(x.len() - 1)];
         // Unescape quotes
         let s = s.replace("\\\"", "\"");
-        s
+        Literal::String(s)
     }
 };

@@ -7,7 +7,7 @@ use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataContext, Linkage, Module};
 
 use crate::{
-    ast::{BinOp, Expr, Ident, ManaliType},
+    ast::{BinOp, Expr, Ident, Literal},
     grammar::ProgramParser,
 };
 
@@ -183,7 +183,7 @@ impl<'a> FunctionTranslator<'a> {
     /// references in other instructions.
     fn translate_expr(&mut self, expr: &Expr) -> Value {
         match expr {
-            Expr::Literal(ManaliType::Number(imm)) => self.builder.ins().f64const(*imm),
+            Expr::Literal(Literal::Float(imm)) => self.builder.ins().f64const(*imm),
             Expr::Literal(_) => unimplemented!(),
 
             Expr::Binary(op, lhs, rhs) => {
