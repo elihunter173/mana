@@ -1,5 +1,5 @@
 use bumpalo::{boxed::Box, collections::Vec};
-use num::{Num, BigInt};
+use num::{BigInt, Zero};
 
 #[derive(Debug, PartialEq)]
 pub enum Literal {
@@ -12,29 +12,25 @@ pub enum Literal {
 
 impl Literal {
     pub fn parse_int(digits: &str, radix: u32) -> Self {
-        Self::Int(BigInt::from_str_radix(digits, radix).unwrap())
+        // TODO: Maybe optimize this?
+        let mut num = BigInt::zero();
+        for b in digits.bytes() {
+            let d = match b {
+                b'0'..=b'9' => b - b'0',
+                b'a'..=b'z' => b - b'a' + 10,
+                b'A'..=b'Z' => b - b'A' + 10,
+                b'_' => continue,
+                _ => panic!("unexpected digit {:?}", b),
+            };
+            num *= radix;
+            num += d;
+        }
+
+        Self::Int(num)
     }
 }
 
 type BoxExpr<'ast> = Box<'ast, Expr<'ast>>;
-
-macro_rules! literal_from {
-    ( $( ($variant:ident $ty:ty) )* ) => {$(
-        impl From<$ty> for Literal {
-            fn from(v: $ty) -> Self {
-                Self::$variant(v.into())
-            }
-        }
-    )*};
-}
-
-// TODO: Remove this and just improve tests
-literal_from!(
-    (Bool bool)
-    (Int isize)
-    (Float f64)
-    (String &str)
-);
 
 #[derive(Debug, PartialEq)]
 pub struct Ident<'ast> {
@@ -127,17 +123,25 @@ mod tests {
 
     use super::*;
     use crate::grammar::*;
-    use BinOp::*;
-    use Expr::*;
 
-    macro_rules! assert_matches {
-        ($expression:expr, $($pattern:tt)+) => {
-            match $expression {
-                $($pattern)+ => (),
-                ref e => panic!("assertion failed: `{:?}` does not match `{}`", e, stringify!($($pattern)+)),
+    use matches::assert_matches;
+
+    macro_rules! literal_from {
+        ( $( ($variant:ident $ty:ty) )* ) => {$(
+            impl From<$ty> for Literal {
+                fn from(v: $ty) -> Self {
+                    Self::$variant(v.into())
+                }
             }
-        }
+        )*};
     }
+
+    literal_from!(
+        (Bool bool)
+        (Int isize)
+        (Float f64)
+        (String &str)
+    );
 
     macro_rules! test_literals {
         ($( ($test_name:ident, $code:literal, $val:literal$(,)?) ),* $(,)?) => {$(
@@ -145,7 +149,7 @@ mod tests {
             fn $test_name() {
                 let alloc = Bump::new();
                 let got = LiteralParser::new().parse(&alloc, $code);
-                let want = Ok(Literal($val.into()));
+                let want = Ok(Expr::Literal($val.into()));
                 assert_eq!(got, want);
             }
         )*};
@@ -157,7 +161,7 @@ mod tests {
 
         (int, "1", 1),
         (int_zero, "0", 0),
-        (int_underscore, "1_000", 1),
+        (int_underscore, "1_000", 1_000),
         (int_hex, "0xDEADbeef", 0xDEADBEEF),
         (int_hex_underscore, "0x__123__abc_", 0x123_abc),
         (int_oct, "0o76543210", 0o76543210),
@@ -173,6 +177,8 @@ mod tests {
 
     #[test]
     fn logical_precedance() {
+        use BinOp::*;
+        use Expr::*;
         let alloc = Bump::new();
         let b = |v| Box::new_in(v, &alloc);
 
@@ -198,6 +204,8 @@ mod tests {
 
     #[test]
     fn arithmetic_precedance() {
+        use BinOp::*;
+        use Expr::*;
         let alloc = Bump::new();
         let b = |v| Box::new_in(v, &alloc);
 

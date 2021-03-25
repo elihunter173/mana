@@ -24,7 +24,7 @@ pub Program = Stmt*;
 
 Stmt = <Expr> ";";
 
-Expr: Expr<'input> = {
+pub(crate) Expr: Expr<'input> = {
     ExprP0,
     Block => Expr::Block(<>),
     If,
@@ -148,15 +148,16 @@ pub(crate) Literal: Expr<'input> = {
     String => Expr::Literal(<>),
 };
 
-// TODO: Support underscores and trailing types to specify the type of the
-// expression
+// TODO: Trailing types to specify the type of the expression
 Int: Literal = {
     r"[0-9][_0-9]*" => Literal::parse_int(<>, 10),
-    r"0x[_0-9a-fA-F]*[0-9a-fA-F][0-9a-fA-F]*" => Literal::parse_int(&<>[2..], 16),
+    r"0x[_0-9a-fA-F]*[0-9a-fA-F][_0-9a-fA-F]*" => Literal::parse_int(&<>[2..], 16),
     r"0o[_0-7]*[0-7][_0-7]*" => Literal::parse_int(&<>[2..], 8),
-    r"0b[_01]*[01][_01]*" => Literal::parse_int(&<>[2..], 8),
+    r"0b[_01]*[01][_01]*" => Literal::parse_int(&<>[2..], 2),
 }
 
+// TODO: Scientific notation E[+-]NUM stuff
+// TODO: Trailing types to specify the type of the expression
 Float: Literal = {
     r"[0-9]+\.[0-9]+" => Literal::Float(f64::from_str(<>).unwrap()),
 };
