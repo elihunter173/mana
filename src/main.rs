@@ -1,7 +1,6 @@
 mod ast;
 mod jit;
-mod types;
-lalrpop_mod!(pub grammar);
+lalrpop_mod!(grammar);
 
 use std::{fs::File, io::Read};
 

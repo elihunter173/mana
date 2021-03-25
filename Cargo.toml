@@ -20,9 +20,9 @@ regex = "1"
 bumpalo = { version = "3.4", features = ["boxed", "collections"] }
 # Repl
 rustyline = "7.1"
-clap = { version = "3.0.0-beta.2", features = ["yaml"] }
+clap = { version = "3.0.0-beta.2", features = [] }
 
 # Compilation
-cranelift = "0.69.0"
-cranelift-module = "0.69.0"
-cranelift-jit = "0.69.0"
+cranelift = "0.72.0"
+cranelift-module = "0.72.0"
+cranelift-jit = "0.72.0"
