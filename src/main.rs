@@ -1,8 +1,5 @@
 mod ast;
-mod bytecode;
 mod jit;
-// mod compile;
-// mod interpreter;
 mod types;
 lalrpop_mod!(pub grammar);
 
