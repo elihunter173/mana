@@ -1,4 +1,7 @@
+#![feature(hash_set_entry)]
+
 mod ast;
+mod intern;
 mod jit;
 mod queries;
 mod ty;
