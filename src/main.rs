@@ -1,5 +1,7 @@
 mod ast;
 mod jit;
+mod queries;
+mod ty;
 lalrpop_mod!(grammar);
 
 use std::{fs::File, io::Read};
@@ -28,6 +30,8 @@ fn main() {
         )
     )
     .get_matches();
+
+    crate::queries::main();
 
     if let Some(ref matches) = matches.subcommand_matches("parse") {
         let path = matches.value_of("INPUT").unwrap();
