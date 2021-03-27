@@ -33,7 +33,7 @@ trait HelloWorld: salsa::Database {
 
     // This is a *derived query*, meaning its value is specified by
     // a function (see Step 2, below).
-    fn length(&self) -> usize;
+    fn length(&self, key: ()) -> usize;
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -47,7 +47,7 @@ trait HelloWorld: salsa::Database {
 // trait, so that you can invoke all the queries you know about.
 // We never know the concrete type here, as the full database may contain
 // methods from other query groups that we don't know about.
-fn length(db: &dyn HelloWorld) -> usize {
+fn length(db: &dyn HelloWorld, (): ()) -> usize {
     // Read the input string:
     let input_string = db.input_string(());
 
@@ -94,5 +94,5 @@ pub fn main() {
 
     db.set_input_string((), format!("Hello, world"));
 
-    println!("Now, the length is {}.", db.length());
+    println!("Now, the length is {}.", db.length(()));
 }

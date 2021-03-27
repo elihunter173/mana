@@ -1,0 +1,11 @@
+#!/usr/bin/env manali
+
+import std.io.Stdin
+
+let lines = 0, words = 0, chars = 0
+Stdin.lines.for_each line -> {
+    lines += 1
+    words += line.split(" ").count()
+    chars += line.chars().count()
+}
+print("$lines\t$words\t$chars")

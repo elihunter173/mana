@@ -1,0 +1,12 @@
+#!/usr/bin/env manali
+
+import std.net.HTTPServer
+
+let server = HTMLServer()
+server.endpoint("/hello") {
+    "Hello, World!"
+}
+server.endpoint("/hello/$name") name -> {
+    "Hello, $name"
+}
+sever.start()

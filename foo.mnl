@@ -1,3 +1,0 @@
-let pi = 3.14159;
-let r = 5.0;
-let ret = pi*r*r;

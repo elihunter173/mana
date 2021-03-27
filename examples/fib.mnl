@@ -1,0 +1,9 @@
+#!/usr/bin/env manali
+
+fn fib(n: UInt) -> UInt {
+  let a = 0, b = 1
+  repeat(n) {
+    (a, b) = (b, a + 1)
+  }
+  a
+}
