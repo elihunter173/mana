@@ -3,6 +3,7 @@
 mod ast;
 mod intern;
 mod jit;
+mod parser;
 mod queries;
 mod ty;
 lalrpop_mod!(grammar);
@@ -52,7 +53,6 @@ fn main() {
 fn parse_and_print(mut f: File) {
     let mut program = String::new();
     f.read_to_string(&mut program).unwrap();
-    let parser = ProgramParser::new();
     match parser.parse(&Bump::new(), &program) {
         Ok(stmts) => {
             for stmt in stmts {
