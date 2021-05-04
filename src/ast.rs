@@ -1,16 +1,29 @@
 use std::str::FromStr;
 
-use bumpalo::{boxed::Box, collections::Vec};
+use bumpalo::collections::Vec;
 use num::{BigInt, Zero};
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum Literal {
     Bool(bool),
-    // TODO: Maybe use i128 since we only support up to (U)Int64?
     Int(BigInt),
     Float(f64),
     String(String),
 }
+
+impl PartialEq for Literal {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Bool(s), Self::Bool(o)) => s == o,
+            (Self::Int(s), Self::Int(o)) => s == o,
+            (Self::String(s), Self::String(o)) => s == o,
+            (Self::Float(s), Self::Float(o)) => (s.is_nan() && o.is_nan()) || s == o,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Literal {}
 
 impl Literal {
     pub fn parse_int(digits: &str, radix: u32) -> Self {
@@ -38,19 +51,17 @@ impl Literal {
     }
 }
 
-type BoxExpr<'ast> = Box<'ast, Expr<'ast>>;
-
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ident<'ast> {
     pub name: &'ast str,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct TypePath<'ast> {
     pub paths: Vec<'ast, Ident<'ast>>,
 }
 
-pub type Block<'ast> = Vec<'ast, BoxExpr<'ast>>;
+pub type Block<'ast> = Vec<'ast, &'ast Expr<'ast>>;
 
 // Is this a good way to do things?
 // pub struct Expr {
@@ -58,22 +69,22 @@ pub type Block<'ast> = Vec<'ast, BoxExpr<'ast>>;
 //   kind: ExprKind,
 // }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Expr<'ast> {
     Ident(Ident<'ast>),
     Literal(Literal),
-    Binary(BinOp, BoxExpr<'ast>, BoxExpr<'ast>),
-    Unary(UnaryOp, BoxExpr<'ast>),
+    Binary(BinOp, &'ast Expr<'ast>, &'ast Expr<'ast>),
+    Unary(UnaryOp, &'ast Expr<'ast>),
 
-    Let(Ident<'ast>, BoxExpr<'ast>),
-    Set(Ident<'ast>, BoxExpr<'ast>),
+    Let(Ident<'ast>, &'ast Expr<'ast>),
+    Set(Ident<'ast>, &'ast Expr<'ast>),
 
     FnCall(Ident<'ast>, Vec<'ast, Expr<'ast>>),
     Block(Block<'ast>),
     If {
-        cond: BoxExpr<'ast>,
-        true_expr: BoxExpr<'ast>,
-        false_expr: Option<BoxExpr<'ast>>,
+        cond: &'ast Expr<'ast>,
+        true_expr: &'ast Expr<'ast>,
+        false_expr: Option<&'ast Expr<'ast>>,
     },
 }
 

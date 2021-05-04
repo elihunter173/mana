@@ -10,13 +10,12 @@ lalrpop_mod!(grammar);
 
 use std::{fs::File, io::Read};
 
-use bumpalo::Bump;
 use clap::clap_app;
 use lalrpop_util::lalrpop_mod;
 use rustyline::{error::ReadlineError, Editor};
 
-use crate::grammar::ProgramParser;
 use crate::jit::JIT;
+use crate::parser::DatabaseStruct;
 
 fn main() {
     // TODO: Switch to structopt version???
@@ -53,7 +52,10 @@ fn main() {
 fn parse_and_print(mut f: File) {
     let mut program = String::new();
     f.read_to_string(&mut program).unwrap();
-    match parser.parse(&Bump::new(), &program) {
+
+    let mut db = DatabaseStruct::default();
+    db.set_source_code(&program);
+    match db.parse() {
         Ok(stmts) => {
             for stmt in stmts {
                 println!("{:?}", stmt);
@@ -80,13 +82,14 @@ fn repl() {
     if rl.load_history("history.txt").is_err() {
         println!("No previous history.");
     }
-    let parser = ProgramParser::new();
+    let mut db = DatabaseStruct::default();
     loop {
         let readline = rl.readline(">> ");
         match readline {
             Ok(line) => {
                 rl.add_history_entry(line.as_str());
-                match parser.parse(&Bump::new(), &line) {
+                db.set_source_code(&line);
+                match db.parse() {
                     Ok(stmts) => {
                         for stmt in stmts {
                             println!("{:?}", stmt);

@@ -1,4 +1,4 @@
-use bumpalo::{boxed::Box as BumpBox, collections::Vec as BumpVec, Bump};
+use bumpalo::{collections::Vec as BumpVec, Bump};
 
 use crate::ast::{UnaryOp, BinOp, Block, Expr, Ident, TypePath, Literal};
 
@@ -33,7 +33,7 @@ pub(crate) Expr: Expr<'input> = {
 
 Block: Block<'input> = {
     "{" <stmts:Stmt*> "}" => {
-        let stmts = stmts.into_iter().map(|x| BumpBox::new_in(x, bump));
+        let stmts = stmts.into_iter().map(|x| bump.alloc(x));
         BumpVec::from_iter_in(stmts, bump)
     },
 };
@@ -41,23 +41,23 @@ Block: Block<'input> = {
 If: Expr<'input> = {
     "if" <cond:Expr> <true_block:Block> => {
         Expr::If {
-            cond: BumpBox::new_in(cond, bump),
-            true_expr: BumpBox::new_in(Expr::Block(true_block), bump),
+            cond: bump.alloc(cond),
+            true_expr: bump.alloc(Expr::Block(true_block)),
             false_expr: None,
         }
     },
     "if" <cond:Expr> <true_block:Block> "else" <elif:If> => {
         Expr::If {
-            cond: BumpBox::new_in(cond, bump),
-            true_expr: BumpBox::new_in(Expr::Block(true_block), bump),
-            false_expr: Some(BumpBox::new_in(elif, bump)),
+            cond: bump.alloc(cond),
+            true_expr: bump.alloc(Expr::Block(true_block)),
+            false_expr: Some(bump.alloc(elif)),
         }
     },
     "if" <cond:Expr> <true_block:Block> "else" <false_block:Block> => {
         Expr::If {
-            cond: BumpBox::new_in(cond, bump),
-            true_expr: BumpBox::new_in(Expr::Block(true_block), bump),
-            false_expr: Some(BumpBox::new_in(Expr::Block(false_block), bump)),
+            cond: bump.alloc(cond),
+            true_expr: bump.alloc(Expr::Block(true_block)),
+            false_expr: Some(bump.alloc(Expr::Block(false_block))),
         }
     },
 };
@@ -68,17 +68,17 @@ FunctionCall: Expr<'input> = {
 
 Let: Expr<'input> = {
     "let" <id:Ident> <typ:(":" <TypePath>)?> "=" <e:Expr> => {
-        Expr::Let(id, BumpBox::new_in(e, bump))
+        Expr::Let(id, bump.alloc(e))
     },
 };
 
 Set: Expr<'input> = {
-    <id:Ident> "=" <e:Expr> => Expr::Set(id, BumpBox::new_in(e, bump)),
+    <id:Ident> "=" <e:Expr> => Expr::Set(id, bump.alloc(e)),
 };
 
 ExprTier<Op, NextTier>: Expr<'input> = {
     <l:ExprTier<Op, NextTier>> <op:Op> <r:NextTier> => {
-        Expr::Binary(op, BumpBox::new_in(l, bump), BumpBox::new_in(r, bump))
+        Expr::Binary(op, bump.alloc(l), bump.alloc(r))
     },
     NextTier,
 };
@@ -93,11 +93,11 @@ OpP0: BinOp = {
 
 ExprP1: Expr<'input> = {
     <l:ExprP1> <op:OpP1> <r:ExprP2> => {
-        Expr::Binary(op, BumpBox::new_in(l, bump), BumpBox::new_in(r, bump))
+        Expr::Binary(op, bump.alloc(l), bump.alloc(r))
     },
     // Don't let logical operators be on the same level
     <l:ExprP2> <op:LogicalOp> <r:ExprP2> => {
-        Expr::Binary(op, BumpBox::new_in(l, bump), BumpBox::new_in(r, bump))
+        Expr::Binary(op, bump.alloc(l), bump.alloc(r))
     },
     ExprP2,
 };
@@ -117,7 +117,7 @@ OpP2: BinOp = {
 };
 
 UnaryExpr = {
-    "-" <a:Atom> => Expr::Unary(UnaryOp::Neg, BumpBox::new_in(a, bump)),
+    "-" <a:Atom> => Expr::Unary(UnaryOp::Neg, bump.alloc(a)),
     Atom,
 }
 
