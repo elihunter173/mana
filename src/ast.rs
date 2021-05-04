@@ -1,6 +1,5 @@
 use std::str::FromStr;
 
-use bumpalo::collections::Vec;
 use num::{BigInt, Zero};
 
 #[derive(Clone, Debug)]
@@ -52,16 +51,14 @@ impl Literal {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Ident<'ast> {
-    pub name: &'ast str,
+pub struct Ident {
+    pub name: String,
 }
 
 #[derive(Clone, Debug)]
-pub struct TypePath<'ast> {
-    pub paths: Vec<'ast, Ident<'ast>>,
+pub struct TypePath {
+    pub paths: Vec<Ident>,
 }
-
-pub type Block<'ast> = Vec<'ast, &'ast Expr<'ast>>;
 
 // Is this a good way to do things?
 // pub struct Expr {
@@ -69,27 +66,27 @@ pub type Block<'ast> = Vec<'ast, &'ast Expr<'ast>>;
 //   kind: ExprKind,
 // }
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum Expr<'ast> {
-    Ident(Ident<'ast>),
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Expr {
+    Ident(Ident),
     Literal(Literal),
-    Binary(BinOp, &'ast Expr<'ast>, &'ast Expr<'ast>),
-    Unary(UnaryOp, &'ast Expr<'ast>),
+    Binary(BinOp, Box<Expr>, Box<Expr>),
+    Unary(UnaryOp, Box<Expr>),
 
-    Let(Ident<'ast>, &'ast Expr<'ast>),
-    Set(Ident<'ast>, &'ast Expr<'ast>),
+    Let(Ident, Box<Expr>),
+    Set(Ident, Box<Expr>),
 
-    FnCall(Ident<'ast>, Vec<'ast, Expr<'ast>>),
-    Block(Block<'ast>),
+    FnCall(Ident, Vec<Expr>),
+    Block(Vec<Expr>),
     If {
-        cond: &'ast Expr<'ast>,
-        true_expr: &'ast Expr<'ast>,
-        false_expr: Option<&'ast Expr<'ast>>,
+        cond: Box<Expr>,
+        true_expr: Box<Expr>,
+        false_expr: Option<Box<Expr>>,
     },
 }
 
-impl<'ast> Expr<'ast> {
-    // TODO: Find a better way to do this
+impl Expr {
+    // TODO: Find a way to easily iterate over the children
     pub fn apply_children<F>(&self, mut f: F)
     where
         F: FnMut(&Expr),
@@ -119,7 +116,7 @@ impl<'ast> Expr<'ast> {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BinOp {
     Mul,
     Div,
@@ -131,7 +128,7 @@ pub enum BinOp {
     Lor,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum UnaryOp {
     Neg,
 }

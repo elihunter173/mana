@@ -1,14 +1,11 @@
-use bumpalo::{collections::Vec as BumpVec, Bump};
-
-use crate::ast::{UnaryOp, BinOp, Block, Expr, Ident, TypePath, Literal};
+use crate::ast::{UnaryOp, BinOp, Expr, Ident, TypePath, Literal};
 
 // XXX: I have things I test marked as pub(crate)
 
-grammar(bump: &'input Bump);
+grammar();
 
-Delimited<T, Delimiter>: BumpVec<'input, T> = {
-    <v:(<T> Delimiter)*> <e:T?> => {
-        let mut v = BumpVec::from_iter_in(v, bump);
+Delimited<T, Delimiter>: Vec<T> = {
+    <mut v:(<T> Delimiter)*> <e:T?> => {
         if let Some(e) = e {
             v.push(e);
         }
@@ -22,7 +19,7 @@ pub Program = Stmt*;
 
 Stmt = <Expr> ";";
 
-pub(crate) Expr: Expr<'input> = {
+pub(crate) Expr: Expr = {
     ExprP0,
     Block => Expr::Block(<>),
     If,
@@ -31,54 +28,51 @@ pub(crate) Expr: Expr<'input> = {
     Set,
 };
 
-Block: Block<'input> = {
-    "{" <stmts:Stmt*> "}" => {
-        let stmts = stmts.into_iter().map(|x| bump.alloc(x));
-        BumpVec::from_iter_in(stmts, bump)
-    },
+Block: Vec<Expr> = {
+    "{" <stmts:Stmt*> "}" => stmts,
 };
 
-If: Expr<'input> = {
+If: Expr = {
     "if" <cond:Expr> <true_block:Block> => {
         Expr::If {
-            cond: bump.alloc(cond),
-            true_expr: bump.alloc(Expr::Block(true_block)),
+            cond: Box::new(cond),
+            true_expr: Box::new(Expr::Block(true_block)),
             false_expr: None,
         }
     },
     "if" <cond:Expr> <true_block:Block> "else" <elif:If> => {
         Expr::If {
-            cond: bump.alloc(cond),
-            true_expr: bump.alloc(Expr::Block(true_block)),
-            false_expr: Some(bump.alloc(elif)),
+            cond: Box::new(cond),
+            true_expr: Box::new(Expr::Block(true_block)),
+            false_expr: Some(Box::new(elif)),
         }
     },
     "if" <cond:Expr> <true_block:Block> "else" <false_block:Block> => {
         Expr::If {
-            cond: bump.alloc(cond),
-            true_expr: bump.alloc(Expr::Block(true_block)),
-            false_expr: Some(bump.alloc(Expr::Block(false_block))),
+            cond: Box::new(cond),
+            true_expr: Box::new(Expr::Block(true_block)),
+            false_expr: Some(Box::new(Expr::Block(false_block))),
         }
     },
 };
 
-FunctionCall: Expr<'input> = {
+FunctionCall: Expr = {
     <Ident> "(" <Comma<Expr>> ")" => Expr::FnCall(<>),
 };
 
-Let: Expr<'input> = {
+Let: Expr = {
     "let" <id:Ident> <typ:(":" <TypePath>)?> "=" <e:Expr> => {
-        Expr::Let(id, bump.alloc(e))
+        Expr::Let(id, Box::new(e))
     },
 };
 
-Set: Expr<'input> = {
-    <id:Ident> "=" <e:Expr> => Expr::Set(id, bump.alloc(e)),
+Set: Expr = {
+    <id:Ident> "=" <e:Expr> => Expr::Set(id, Box::new(e)),
 };
 
-ExprTier<Op, NextTier>: Expr<'input> = {
+ExprTier<Op, NextTier>: Expr = {
     <l:ExprTier<Op, NextTier>> <op:Op> <r:NextTier> => {
-        Expr::Binary(op, bump.alloc(l), bump.alloc(r))
+        Expr::Binary(op, Box::new(l), Box::new(r))
     },
     NextTier,
 };
@@ -91,13 +85,13 @@ OpP0: BinOp = {
     "!=" => BinOp::Neq,
 };
 
-ExprP1: Expr<'input> = {
+ExprP1: Expr = {
     <l:ExprP1> <op:OpP1> <r:ExprP2> => {
-        Expr::Binary(op, bump.alloc(l), bump.alloc(r))
+        Expr::Binary(op, Box::new(l), Box::new(r))
     },
     // Don't let logical operators be on the same level
     <l:ExprP2> <op:LogicalOp> <r:ExprP2> => {
-        Expr::Binary(op, bump.alloc(l), bump.alloc(r))
+        Expr::Binary(op, Box::new(l), Box::new(r))
     },
     ExprP2,
 };
@@ -117,29 +111,28 @@ OpP2: BinOp = {
 };
 
 UnaryExpr = {
-    "-" <a:Atom> => Expr::Unary(UnaryOp::Neg, bump.alloc(a)),
+    "-" <a:Atom> => Expr::Unary(UnaryOp::Neg, Box::new(a)),
     Atom,
 }
 
-Atom: Expr<'input> = {
+Atom: Expr = {
     Literal,
     Ident => Expr::Ident(<>),
     "(" <Expr> ")",
 };
 
-Ident: Ident<'input> = {
-    r"[a-zA-Z_][0-9a-zA-Z_]*" => Ident { name: <> },
+Ident: Ident = {
+    r"[a-zA-Z_][0-9a-zA-Z_]*" => Ident { name: <>.to_string() },
 };
 
-TypePath: TypePath<'input> = {
-    <parents:(<Ident> ".")*> <typ:Ident> => {
-        let mut v = BumpVec::from_iter_in(parents.into_iter(), bump);
-        v.push(typ);
-        TypePath { paths: v }
+TypePath: TypePath = {
+    <mut parents:(<Ident> ".")*> <typ:Ident> => {
+        parents.push(typ);
+        TypePath { paths: parents }
     },
 };
 
-pub(crate) Literal: Expr<'input> = {
+pub(crate) Literal: Expr = {
     Float => Expr::Literal(<>),
     Int => Expr::Literal(<>),
     Bool => Expr::Literal(<>),

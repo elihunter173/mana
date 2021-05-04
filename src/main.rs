@@ -15,7 +15,7 @@ use lalrpop_util::lalrpop_mod;
 use rustyline::{error::ReadlineError, Editor};
 
 use crate::jit::JIT;
-use crate::parser::DatabaseStruct;
+use crate::parser::{DatabaseStruct, Parser};
 
 fn main() {
     // TODO: Switch to structopt version???
@@ -54,11 +54,11 @@ fn parse_and_print(mut f: File) {
     f.read_to_string(&mut program).unwrap();
 
     let mut db = DatabaseStruct::default();
-    db.set_source_code(&program);
+    db.set_source_code(program);
     match db.parse() {
-        Ok(stmts) => {
-            for stmt in stmts {
-                println!("{:?}", stmt);
+        Ok(parsed) => {
+            for expr in parsed.exprs {
+                println!("{:?}", expr);
             }
         }
         Err(err) => println!("Error: {}", err),
@@ -88,11 +88,11 @@ fn repl() {
         match readline {
             Ok(line) => {
                 rl.add_history_entry(line.as_str());
-                db.set_source_code(&line);
+                db.set_source_code(line);
                 match db.parse() {
-                    Ok(stmts) => {
-                        for stmt in stmts {
-                            println!("{:?}", stmt);
+                    Ok(parsed) => {
+                        for expr in parsed.exprs {
+                            println!("{:?}", expr);
                         }
                         // for stmt in stmts {
                         //     let mut comp = Compiler::new();
