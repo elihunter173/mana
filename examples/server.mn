@@ -1,4 +1,4 @@
-#!/usr/bin/env manali
+#!/usr/bin/env mana
 
 import std.net.HTTPServer
 

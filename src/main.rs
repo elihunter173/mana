@@ -1,5 +1,8 @@
 #![feature(hash_set_entry)]
 
+// I'm working on things and those errors are noisy
+#![allow(dead_code)]
+
 mod ast;
 mod intern;
 mod jit;
@@ -22,7 +25,7 @@ fn main() {
     let matches = clap_app!(myapp =>
         (version: "0.1.0")
         (author: "Eli W. Hunter <elihunter173@gmail.com>")
-        (about: "Manali language frontend")
+        (about: "Mana language frontend")
         (@subcommand parse =>
             (about: "Parse .mnl file")
             (@arg INPUT: +required "Sets the input file to use")

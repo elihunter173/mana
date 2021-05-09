@@ -1,5 +1,5 @@
 [package]
-name = "manali-lang"
+name = "mana"
 version = "0.1.0"
 authors = ["Eli W. Hunter <elihunter173@gmail.com>"]
 edition = "2018"
@@ -14,6 +14,7 @@ anyhow = "1.0"
 # For Literal BigInt
 num = "0.4"
 
+# Query-based parser
 salsa = "0.16"
 
 # Parser

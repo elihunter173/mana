@@ -1,4 +1,4 @@
-#!/usr/bin/env manali
+#!/usr/bin/env mana
 
 fn fib(n: UInt) -> UInt {
   let a = 0, b = 1
