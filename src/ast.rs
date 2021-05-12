@@ -135,7 +135,6 @@ pub enum UnaryOp {
 
 #[cfg(test)]
 mod tests {
-    use bumpalo::Bump;
 
     use super::*;
     use crate::grammar::*;
@@ -163,8 +162,7 @@ mod tests {
         ($( ($test_name:ident, $code:literal, $val:literal$(,)?) ),* $(,)?) => {$(
             #[test]
             fn $test_name() {
-                let alloc = Bump::new();
-                let got = LiteralParser::new().parse(&alloc, $code);
+                let got = LiteralParser::new().parse($code);
                 let want = Ok(Expr::Literal($val.into()));
                 assert_eq!(got, want);
             }
@@ -200,10 +198,9 @@ mod tests {
     fn logical_precedance() {
         use BinOp::*;
         use Expr::*;
-        let alloc = Bump::new();
-        let b = |v| Box::new_in(v, &alloc);
+        let b = Box::new;
 
-        let got = ExprParser::new().parse(&alloc, "(true and false) or true");
+        let got = ExprParser::new().parse("(true and false) or true");
         let want = Ok(Binary(
             Lor,
             b(Binary(
@@ -218,8 +215,7 @@ mod tests {
 
     #[test]
     fn logical_same_level() {
-        let alloc = Bump::new();
-        let got = ExprParser::new().parse(&alloc, "true and false or true");
+        let got = ExprParser::new().parse("true and false or true");
         assert_matches!(got, Err(_));
     }
 
@@ -227,10 +223,9 @@ mod tests {
     fn arithmetic_precedance() {
         use BinOp::*;
         use Expr::*;
-        let alloc = Bump::new();
-        let b = |v| Box::new_in(v, &alloc);
+        let b = Box::new;
 
-        let got = ExprParser::new().parse(&alloc, "1 + 2 * 3 / (4 - 5)");
+        let got = ExprParser::new().parse("1 + 2 * 3 / (4 - 5)");
         let want = Ok(Binary(
             Add,
             b(Literal(1.into())),
