@@ -154,8 +154,8 @@ Float: Literal = {
     r"[0-9][_0-9]*\.[0-9][_0-9]*" => Literal::parse_float(<>),
     // Has a scientific thing
     r"[0-9][_0-9]*(\.[0-9][_0-9]*)?[eE][+-]?[_0-9]*[0-9][_0-9]*" => Literal::parse_float(<>),
-    "inf" => Literal::Float(f64::INFINITY),
-    "NaN" => Literal::Float(f64::NAN),
+    // "inf" => Literal::Float(f64::INFINITY),
+    // "NaN" => Literal::Float(f64::NAN),
 };
 
 Bool: Literal = {

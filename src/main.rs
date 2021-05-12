@@ -1,11 +1,11 @@
 #![feature(hash_set_entry)]
-
 // I'm working on things and those errors are noisy
 #![allow(dead_code)]
 
 mod ast;
 mod intern;
 mod jit;
+mod lexer;
 mod parser;
 mod queries;
 mod ty;
@@ -37,7 +37,7 @@ fn main() {
     )
     .get_matches();
 
-    crate::queries::main();
+    // crate::queries::main();
 
     if let Some(ref matches) = matches.subcommand_matches("parse") {
         let path = matches.value_of("INPUT").unwrap();
