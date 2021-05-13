@@ -18,6 +18,7 @@ use lalrpop_util::lalrpop_mod;
 use rustyline::{error::ReadlineError, Editor};
 
 use crate::jit::JIT;
+use crate::lexer::Lexer;
 use crate::parser::{DatabaseStruct, Parser};
 
 fn main() {
@@ -26,12 +27,16 @@ fn main() {
         (version: "0.1.0")
         (author: "Eli W. Hunter <elihunter173@gmail.com>")
         (about: "Mana language frontend")
+        (@subcommand lex =>
+            (about: "Lex .mn file")
+            (@arg INPUT: +required "Sets the input file to use")
+        )
         (@subcommand parse =>
-            (about: "Parse .mnl file")
+            (about: "Parse .mn file")
             (@arg INPUT: +required "Sets the input file to use")
         )
         (@subcommand run =>
-            (about: "Run .mnl file")
+            (about: "Run .mn file")
             (@arg INPUT: +required "Sets the input file to use")
         )
     )
@@ -43,6 +48,10 @@ fn main() {
         let path = matches.value_of("INPUT").unwrap();
         let file = File::open(path).unwrap();
         parse_and_print(file);
+    } else if let Some(ref matches) = matches.subcommand_matches("lex") {
+        let path = matches.value_of("INPUT").unwrap();
+        let file = File::open(path).unwrap();
+        lex(file);
     } else if let Some(ref matches) = matches.subcommand_matches("run") {
         let path = matches.value_of("INPUT").unwrap();
         let file = File::open(path).unwrap();
@@ -66,6 +75,16 @@ fn parse_and_print(mut f: File) {
         }
         Err(err) => println!("Error: {}", err),
     };
+}
+
+fn lex(mut f: File) {
+    let mut program = String::new();
+    f.read_to_string(&mut program).unwrap();
+
+    let lexer = Lexer::new(&program);
+    for item in lexer {
+        println!("{:?}", item);
+    }
 }
 
 fn run(mut f: File) {
