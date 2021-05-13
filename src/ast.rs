@@ -137,7 +137,11 @@ pub enum UnaryOp {
 mod tests {
 
     use super::*;
-    use crate::grammar::*;
+    use crate::{
+        grammar::*,
+        lexer::{self, Lexer},
+    };
+    use lalrpop_util::ParseError;
 
     use matches::assert_matches;
 
@@ -158,11 +162,19 @@ mod tests {
         (String &str)
     );
 
+    // This is a macro rather than a function because the return value is really hairy
+    macro_rules! expr {
+        ($code:literal) => {
+            ExprParser::new().parse($code, Lexer::new($code))
+        };
+    }
+
     macro_rules! test_literals {
         ($( ($test_name:ident, $code:literal, $val:literal$(,)?) ),* $(,)?) => {$(
             #[test]
             fn $test_name() {
-                let got = LiteralParser::new().parse($code);
+                let code = $code;
+                let got = LiteralParser::new().parse(code, Lexer::new(code));
                 let want = Ok(Expr::Literal($val.into()));
                 assert_eq!(got, want);
             }
@@ -200,7 +212,7 @@ mod tests {
         use Expr::*;
         let b = Box::new;
 
-        let got = ExprParser::new().parse("(true and false) or true");
+        let got = expr!("(true and false) or true");
         let want = Ok(Binary(
             Lor,
             b(Binary(
@@ -215,7 +227,7 @@ mod tests {
 
     #[test]
     fn logical_same_level() {
-        let got = ExprParser::new().parse("true and false or true");
+        let got = expr!("true and false or true");
         assert_matches!(got, Err(_));
     }
 
@@ -225,7 +237,7 @@ mod tests {
         use Expr::*;
         let b = Box::new;
 
-        let got = ExprParser::new().parse("1 + 2 * 3 / (4 - 5)");
+        let got = expr!("1 + 2 * 3 / (4 - 5)");
         let want = Ok(Binary(
             Add,
             b(Literal(1.into())),

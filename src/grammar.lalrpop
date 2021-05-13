@@ -1,8 +1,62 @@
 use crate::ast::{UnaryOp, BinOp, Expr, Ident, TypePath, Literal};
+use crate::lexer::{LexError, Loc, Tok};
 
 // XXX: I have things I test marked as pub(crate)
 
-grammar();
+grammar<'input>(input: &'input str);
+
+extern {
+    type Location = Loc;
+    type Error = LexError;
+
+    enum Tok<'input> {
+        "," => Tok::Comma,
+        ":" => Tok::Colon,
+        ";" => Tok::Semicolon,
+        "->" => Tok::SingleArrow,
+        "(" => Tok::LParen,
+        ")" => Tok::RParen,
+        "{" => Tok::LCurly,
+        "}" => Tok::RCurly,
+        "[" => Tok::LSquare,
+        "]" => Tok::RSquare,
+
+        "=" => Tok::Equals,
+        "." => Tok::Dot,
+        ".." => Tok::DotDot,
+        "..=" => Tok::DotDotEq,
+        "+" => Tok::Plus,
+        "-" => Tok::Minus,
+        "*" => Tok::Star,
+        "/" => Tok::Slash,
+
+        "fn" => Tok::Fn,
+        "let" => Tok::Let,
+        "if" => Tok::If,
+        "else" => Tok::Else,
+        "for" => Tok::For,
+        "while" => Tok::While,
+        "loop" => Tok::Loop,
+        "and" => Tok::And,
+        "or" => Tok::Or,
+        "not" => Tok::Not,
+
+        "==" => Tok::DoubleEquals,
+        "!=" => Tok::BangEquals,
+        ">" => Tok::Gt,
+        ">=" => Tok::Geq,
+        "<" => Tok::Lt,
+        "<=" => Tok::Leq,
+
+        "true" => Tok::True,
+        "false" => Tok::False,
+        "Ident" => Tok::Ident(<&'input str>),
+        "String" => Tok::String(<&'input str>),
+        "Int" => Tok::Int(<&'input str>),
+        "Float" => Tok::Float(<&'input str>),
+    }
+}
+
 
 Delimited<T, Delimiter>: Vec<T> = {
     <mut v:(<T> Delimiter)*> <e:T?> => {
@@ -122,7 +176,7 @@ Atom: Expr = {
 };
 
 Ident: Ident = {
-    r"[a-zA-Z_][0-9a-zA-Z_]*" => Ident { name: <>.to_string() },
+    "Ident" => Ident { name: <>.to_string() },
 };
 
 TypePath: TypePath = {
@@ -141,21 +195,25 @@ pub(crate) Literal: Expr = {
 
 // TODO: Trailing types to specify the type of the expression
 Int: Literal = {
-    r"[0-9][_0-9]*" => Literal::parse_int(<>, 10),
-    r"0x[_0-9a-fA-F]*[0-9a-fA-F][_0-9a-fA-F]*" => Literal::parse_int(&<>[2..], 16),
-    r"0o[_0-7]*[0-7][_0-7]*" => Literal::parse_int(&<>[2..], 8),
-    r"0b[_01]*[01][_01]*" => Literal::parse_int(&<>[2..], 2),
+    "Int" => {
+        let s = <>;
+        if s.starts_with("0x") {
+            Literal::parse_int(&s[2..], 16)
+        } else if s.starts_with("0o") {
+            Literal::parse_int(&s[2..], 8)
+        } else if s.starts_with("0b") {
+            Literal::parse_int(&s[2..], 2)
+        } else {
+            Literal::parse_int(<>, 10)
+        }
+    }
 }
 
 // TODO: Scientific notation E[+-]NUM stuff
 // TODO: Trailing types to specify the type of the expression
 Float: Literal = {
     // Has a decimal
-    r"[0-9][_0-9]*\.[0-9][_0-9]*" => Literal::parse_float(<>),
-    // Has a scientific thing
-    r"[0-9][_0-9]*(\.[0-9][_0-9]*)?[eE][+-]?[_0-9]*[0-9][_0-9]*" => Literal::parse_float(<>),
-    // "inf" => Literal::Float(f64::INFINITY),
-    // "NaN" => Literal::Float(f64::NAN),
+    "Float" => Literal::parse_float(<>),
 };
 
 Bool: Literal = {
@@ -164,10 +222,5 @@ Bool: Literal = {
 };
 
 String: Literal = {
-    <x:r#""([^\\"]|\\")*""#> => {
-        let s = &x[1..(x.len() - 1)];
-        // Unescape quotes
-        let s = s.replace("\\\"", "\"");
-        Literal::String(s)
-    }
+    "String" => Literal::String(<>.to_owned()),
 };

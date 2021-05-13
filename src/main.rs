@@ -17,9 +17,11 @@ use clap::clap_app;
 use lalrpop_util::lalrpop_mod;
 use rustyline::{error::ReadlineError, Editor};
 
-use crate::jit::JIT;
-use crate::lexer::Lexer;
-use crate::parser::{DatabaseStruct, Parser};
+use crate::{
+    jit::JIT,
+    lexer::Lexer,
+    parser::{DatabaseStruct, Parser},
+};
 
 fn main() {
     // TODO: Switch to structopt version???

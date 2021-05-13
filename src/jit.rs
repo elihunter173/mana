@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-use std::slice;
+use std::{collections::HashMap, slice};
 
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
@@ -8,6 +7,7 @@ use cranelift_module::{DataContext, Linkage, Module};
 use crate::{
     ast::{BinOp, Expr, Literal},
     grammar::ProgramParser,
+    parser::{DatabaseStruct, Parser},
 };
 
 /// The basic JIT class.
@@ -44,7 +44,10 @@ impl JIT {
         // First, parse the string, producing AST nodes.
         // let (name, params, the_return, stmts) =
         //     parser::function(&input).map_err(|e| e.to_string())?;
-        let program = ProgramParser::new().parse(&input).unwrap();
+        // TODO: This is definitely not how I should be doing this
+        let mut db = DatabaseStruct::default();
+        db.set_source_code(input.to_owned());
+        let program = db.parse().unwrap().exprs;
 
         let name = "TODO";
 

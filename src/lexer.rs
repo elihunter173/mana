@@ -118,9 +118,66 @@ pub enum Tok<'input> {
     Error,
 }
 
+impl fmt::Display for Tok<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Tok::Comma => ",",
+            Tok::Colon => ":",
+            Tok::Semicolon => ";",
+            Tok::Newline => "\n",
+            Tok::SingleArrow => "->",
+            Tok::LParen => "(",
+            Tok::RParen => ")",
+            Tok::LCurly => "{",
+            Tok::RCurly => "}",
+            Tok::LSquare => "[",
+            Tok::RSquare => "]",
+
+            Tok::Equals => "=",
+            Tok::Dot => ".",
+            Tok::DotDot => "..",
+            Tok::DotDotEq => "..=",
+            Tok::Plus => "+",
+            Tok::Minus => "-",
+            Tok::Star => "*",
+            Tok::Slash => "/",
+
+            Tok::Fn => "fn",
+            Tok::Let => "let",
+            Tok::If => "if",
+            Tok::Else => "else",
+            Tok::For => "for",
+            Tok::While => "while",
+            Tok::Loop => "loop",
+            Tok::And => "and",
+            Tok::Or => "or",
+            Tok::Not => "not",
+
+            Tok::DoubleEquals => "==",
+            Tok::BangEquals => "!=",
+            Tok::Gt => ">",
+            Tok::Geq => ">=",
+            Tok::Lt => "<",
+            Tok::Leq => "<=",
+
+            Tok::True => "true",
+            Tok::False => "false",
+            Tok::Ident(s) | Tok::String(s) | Tok::Int(s) | Tok::Float(s) => s,
+
+            Tok::Error => "ERR",
+        })
+    }
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub enum LexError {
     // Not possible
+}
+
+impl fmt::Display for LexError {
+    fn fmt(&self, _: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {}
+    }
 }
 
 pub struct Lexer<'input> {

@@ -1,5 +1,4 @@
-use crate::ast::Expr;
-use crate::grammar::ProgramParser;
+use crate::{ast::Expr, grammar::ProgramParser, lexer::Lexer};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Parsed {
@@ -17,8 +16,10 @@ pub trait Parser: salsa::Database {
 
 fn parse(db: &dyn Parser) -> Result<Parsed, String> {
     let parser = ProgramParser::new();
+    let code = db.source_code();
+    let lexer = Lexer::new(&code);
     // TODO: Improve error handling
-    match parser.parse(&db.source_code()) {
+    match parser.parse(&code, lexer) {
         Ok(exprs) => Ok(Parsed { exprs }),
         Err(err) => Err(err.to_string()),
     }
