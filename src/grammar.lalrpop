@@ -26,11 +26,22 @@ extern {
         ".." => Tok::DotDot,
         "..=" => Tok::DotDotEq,
         "+" => Tok::Plus,
+        "+=" => Tok::PlusEq,
         "-" => Tok::Minus,
+        "-=" => Tok::MinusEq,
         "*" => Tok::Star,
+        "*=" => Tok::StarEq,
         "/" => Tok::Slash,
+        "/=" => Tok::SlashEq,
 
         "fn" => Tok::Fn,
+        "struct" => Tok::Struct,
+        "enum" => Tok::Enum,
+        "trait" => Tok::Trait,
+        "type" => Tok::Type,
+        "impl" => Tok::Impl,
+        "import" => Tok::Import,
+        "pub" => Tok::Pub,
         "let" => Tok::Let,
         "if" => Tok::If,
         "else" => Tok::Else,
@@ -53,6 +64,9 @@ extern {
         "Ident" => Tok::Ident(<&'input str>),
         "String" => Tok::String(<&'input str>),
         "Int" => Tok::Int(<&'input str>),
+        "IntHex" => Tok::IntHex(<&'input str>),
+        "IntOct" => Tok::IntOct(<&'input str>),
+        "IntBin" => Tok::IntBin(<&'input str>),
         "Float" => Tok::Float(<&'input str>),
     }
 }
@@ -195,18 +209,10 @@ pub(crate) Literal: Expr = {
 
 // TODO: Trailing types to specify the type of the expression
 Int: Literal = {
-    "Int" => {
-        let s = <>;
-        if s.starts_with("0x") {
-            Literal::parse_int(&s[2..], 16)
-        } else if s.starts_with("0o") {
-            Literal::parse_int(&s[2..], 8)
-        } else if s.starts_with("0b") {
-            Literal::parse_int(&s[2..], 2)
-        } else {
-            Literal::parse_int(<>, 10)
-        }
-    }
+    "Int" => Literal::parse_int(<>, 10),
+    "IntHex" => Literal::parse_int(&<>[2..], 16),
+    "IntOct" => Literal::parse_int(&<>[2..], 8),
+    "IntBin" => Literal::parse_int(&<>[2..], 2),
 }
 
 // TODO: Scientific notation E[+-]NUM stuff

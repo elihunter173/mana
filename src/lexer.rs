@@ -123,15 +123,18 @@ pub enum Tok<'input> {
     String(&'input str),
     // TODO: You can't have multiple regexes for a single item
     #[regex(r"[0-9][_0-9]*")]
-    #[regex(r"0x[_0-9a-fA-F]*[0-9a-fA-F][_0-9a-fA-F]*")]
-    #[regex(r"0o[_0-7]*[0-7][_0-7]*")]
-    #[regex(r"0b[_01]*[01][_01]*")]
     Int(&'input str),
-    // TODO: You can't have multiple regexes for a single item
-    // Has a decimal
-    #[regex(r"[0-9][_0-9]*\.[0-9][_0-9]*")]
-    // Has a scientific thing
+    // TODO: For some reason these lexes fail
+    #[regex(r"0x[_0-9a-fA-F]*[0-9a-fA-F][_0-9a-fA-F]*")]
+    IntHex(&'input str),
+    #[regex(r"0o[_0-7]*[0-7][_0-7]*")]
+    IntOct(&'input str),
+    #[regex(r"0b[_01]*[01][_01]*")]
+    IntBin(&'input str),
+    // First option has mandatory decimal and no e suffix. Section option has optional decimal and
+    // an e suffix
     #[regex(r"[0-9][_0-9]*(\.[0-9][_0-9]*)?[eE][+-]?[_0-9]*[0-9][_0-9]*")]
+    #[regex(r"[0-9][_0-9]*\.[0-9][_0-9]*")]
     Float(&'input str),
 
     // Whitespace and other errors
@@ -196,7 +199,13 @@ impl fmt::Display for Tok<'_> {
             Tok::True => "true",
             Tok::False => "false",
             // TODO: The String is malformatted
-            Tok::Ident(s) | Tok::String(s) | Tok::Int(s) | Tok::Float(s) => s,
+            Tok::Ident(s)
+            | Tok::String(s)
+            | Tok::Int(s)
+            | Tok::IntHex(s)
+            | Tok::IntOct(s)
+            | Tok::IntBin(s)
+            | Tok::Float(s) => s,
 
             Tok::Error => "ERR",
         })
@@ -221,6 +230,7 @@ pub struct Lexer<'input> {
         iter::Once<(Tok<'input>, logos::Span)>,
     >,
     prev: Option<Tok<'input>>,
+    next: Option<Spanned<'input>>,
     offset: usize,
 }
 
@@ -242,63 +252,84 @@ impl<'input> Lexer<'input> {
                 .spanned()
                 .chain(std::iter::once((Tok::Newline, text.len()..text.len() + 1))),
             prev: None,
+            next: None,
             offset,
         }
+    }
+
+    fn convert_logos_lexeme(&self, (tok, span): (Tok<'input>, logos::Span)) -> Spanned<'input> {
+        Ok((self.offset + span.start, tok, self.offset + span.end))
     }
 }
 
 impl<'input> Iterator for Lexer<'input> {
     type Item = Spanned<'input>;
     fn next(&mut self) -> Option<Self::Item> {
-        match self.inner.next() {
+        if let Some(next) = self.next.take() {
+            return Some(next);
+        }
+
+        let rtn = match self.inner.next() {
             // TODO: Is self.prev handled sensibly here? That is, should I update self.prev to be
             // Tok::Newline?
-            Some((Tok::Newline, span)) => match self.prev {
-                // TODO: Figure out what the rules I want are...
-                // Should also look at the next token
-                None
-                | Some(
-                    Tok::Comma
-                    | Tok::Semicolon
-                    | Tok::Newline
-                    | Tok::LCurly
-                    | Tok::LParen
-                    | Tok::LSquare
-                    | Tok::Plus
-                    | Tok::Minus
-                    | Tok::Star
-                    | Tok::Slash
-                    | Tok::And
-                    | Tok::Or
-                    | Tok::Equals,
-                ) => self.next(),
-                _ => {
-                    self.prev = Some(Tok::Semicolon);
-                    Some(Ok((
-                        self.offset + span.start,
-                        Tok::Semicolon,
-                        self.offset + span.end,
-                    )))
+            Some((Tok::Newline, span)) => {
+                let next = self.inner.find(|(tok, _)| *tok != Tok::Newline);
+
+                if should_skip_semicolon(self.prev, next.clone().map(|(tok, _span)| tok)) {
+                    // We're skipping this one so we don't need to update the return
+                    next.map(|x| self.convert_logos_lexeme(x))
+                } else {
+                    // Stash away next to return later
+                    self.next = next.map(|x| self.convert_logos_lexeme(x));
+                    Some(self.convert_logos_lexeme((Tok::Semicolon, span)))
                 }
-            },
+            }
 
             // TODO: Handle errors
 
             // Normal token
             None => None,
-            Some((tok, span)) => {
-                self.prev = Some(tok);
-                Some(Ok((self.offset + span.start, tok, self.offset + span.end)))
-            }
-        }
+            Some(lexeme) => Some(self.convert_logos_lexeme(lexeme)),
+        };
+
+        self.prev = if let Some(Ok((_start, tok, _end))) = rtn {
+            Some(tok)
+        } else {
+            None
+        };
+
+        rtn
     }
+}
+
+fn should_skip_semicolon(prev: Option<Tok>, next: Option<Tok>) -> bool {
+    let yes_bc_prev = matches!(
+        prev,
+        None | Some(
+            Tok::Comma
+                | Tok::Semicolon
+                | Tok::Newline
+                | Tok::LCurly
+                | Tok::LParen
+                | Tok::LSquare
+                | Tok::Plus
+                | Tok::Minus
+                | Tok::Star
+                | Tok::Slash
+                | Tok::And
+                | Tok::Or
+                | Tok::Equals,
+        ),
+    );
+    let yes_bc_next = matches!(next, Some(Tok::Dot));
+    yes_bc_prev || yes_bc_next
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
 
-    fn lexes_as(input: &str, expected: &[(usize, Tok, usize)]) {
+    fn assert_lex(input: &str, expected: &[(usize, Tok, usize)]) {
         let expected: Vec<_> = expected.iter().cloned().map(Ok).collect();
         let spans: Vec<_> = Lexer::new(input).collect();
         assert_eq!(expected.as_slice(), spans.as_slice());
@@ -306,7 +337,7 @@ mod test {
 
     #[test]
     fn test_punctuation() {
-        lexes_as(
+        assert_lex(
             ",()",
             &[
                 (0, Tok::Comma, 1),
@@ -319,7 +350,7 @@ mod test {
 
     #[test]
     fn test_semicolon_insertion() {
-        lexes_as(
+        assert_lex(
             "let a = 5\nprint(a + 4.5)",
             &[
                 (0, Tok::Let, 3),
@@ -342,7 +373,7 @@ mod test {
 
     #[test]
     fn test_semicolons_method_chaining() {
-        lexes_as(
+        assert_lex(
             "foo\n.bar()\n.baz()",
             &[
                 (0, Tok::Ident("foo"), 3),
@@ -361,7 +392,7 @@ mod test {
 
     #[test]
     fn test_string() {
-        lexes_as(
+        assert_lex(
             "\"Hello, World!\"",
             &[
                 (0, Tok::String("\"Hello, World!\""), 15),
@@ -370,17 +401,37 @@ mod test {
         );
     }
 
+    // TODO: See https://github.com/maciejhirsz/logos/issues/203
     #[test]
     fn test_int_hex() {
-        lexes_as(
+        assert_lex(
             "0xDEADbeef",
-            &[(0, Tok::Int("0xDEADbeef"), 10), (11, Tok::Semicolon, 12)],
+            &[(0, Tok::IntHex("0xDEADbeef"), 10), (10, Tok::Semicolon, 11)],
+        );
+    }
+
+    #[test]
+    fn test_int_oct() {
+        assert_lex(
+            "0xDEADbeef",
+            &[(0, Tok::IntOct("0o755"), 5), (5, Tok::Semicolon, 6)],
+        );
+    }
+
+    #[test]
+    fn test_int_bin() {
+        assert_lex(
+            "0b1111_0011",
+            &[
+                (0, Tok::IntBin("0b1111_0011"), 11),
+                (11, Tok::Semicolon, 12),
+            ],
         );
     }
 
     #[test]
     fn test_shebang() {
-        lexes_as(
+        assert_lex(
             "#!/usr/bin/env mana\r\n(()\r\n",
             &[
                 (21, Tok::LParen, 22),
