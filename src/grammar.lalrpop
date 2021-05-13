@@ -83,9 +83,7 @@ Delimited<T, Delimiter>: Vec<T> = {
 
 Comma<T> = Delimited<T, ",">;
 
-pub Program = Stmt*;
-
-Stmt = <Expr> ";";
+pub Program = Delimited<Expr, ";">;
 
 pub(crate) Expr: Expr = {
     ExprP0,
@@ -97,7 +95,7 @@ pub(crate) Expr: Expr = {
 };
 
 Block: Vec<Expr> = {
-    "{" <stmts:Stmt*> "}" => stmts,
+    "{" <Delimited<Expr, ";">> "}" => <>,
 };
 
 If: Expr = {
