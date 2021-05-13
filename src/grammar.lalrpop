@@ -222,5 +222,9 @@ Bool: Literal = {
 };
 
 String: Literal = {
-    "String" => Literal::String(<>.to_owned()),
+    "String" => {
+        // The string is currently completely unprocessed
+        let s = <>;
+        Literal::String(s[1..s.len()-1].to_owned())
+    }
 };

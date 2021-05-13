@@ -1,8 +1,8 @@
-use std::iter;
+use std::{fmt, iter};
 
 use logos::{Lexer as LogosLexer, Logos};
 
-type Loc = usize;
+pub type Loc = usize;
 
 // TODO: I should probably make this a token kind? How do I want to handle identifiers, literals,
 // and other data-holding tokens?
@@ -99,13 +99,13 @@ pub enum Tok<'input> {
     // TODO: Maybe be more liberal with allowed input?
     #[regex(r#""([^\\"]|\\")*""#)]
     String(&'input str),
-    // TODO: Should I have multiple ints for each format?
+    // TODO: You can't have multiple regexes for a single item
     #[regex(r"[0-9][_0-9]*")]
     #[regex(r"0x[_0-9a-fA-F]*[0-9a-fA-F][_0-9a-fA-F]*")]
     #[regex(r"0o[_0-7]*[0-7][_0-7]*")]
     #[regex(r"0b[_01]*[01][_01]*")]
     Int(&'input str),
-    // TODO: Should I have multiple floats for each format?
+    // TODO: You can't have multiple regexes for a single item
     // Has a decimal
     #[regex(r"[0-9][_0-9]*\.[0-9][_0-9]*")]
     // Has a scientific thing
@@ -162,6 +162,7 @@ impl fmt::Display for Tok<'_> {
 
             Tok::True => "true",
             Tok::False => "false",
+            // TODO: The String is malformatted
             Tok::Ident(s) | Tok::String(s) | Tok::Int(s) | Tok::Float(s) => s,
 
             Tok::Error => "ERR",
@@ -222,9 +223,7 @@ impl<'input> Iterator for Lexer<'input> {
             Some((Tok::Newline, span)) => match self.prev {
                 // TODO: Figure out what the rules I want are...
                 // Should also look at the next token
-                tok
-                @
-                (None
+                None
                 | Some(
                     Tok::Comma
                     | Tok::Semicolon
@@ -239,10 +238,7 @@ impl<'input> Iterator for Lexer<'input> {
                     | Tok::And
                     | Tok::Or
                     | Tok::Equals,
-                )) => {
-                    self.prev = tok;
-                    self.next()
-                }
+                ) => self.next(),
                 _ => {
                     self.prev = Some(Tok::Semicolon);
                     Some(Ok((
@@ -269,52 +265,96 @@ impl<'input> Iterator for Lexer<'input> {
 mod test {
     use super::*;
 
+    fn lexes_as(input: &str, expected: &[(usize, Tok, usize)]) {
+        let expected: Vec<_> = expected.iter().cloned().map(Ok).collect();
+        let spans: Vec<_> = Lexer::new(input).collect();
+        assert_eq!(expected.as_slice(), spans.as_slice());
+    }
+
     #[test]
     fn test_punctuation() {
-        let test = ",()";
-        let spans: Vec<_> = Lexer::new(test).collect();
-        let expected = [
-            Ok((0, Tok::Comma, 1)),
-            Ok((1, Tok::LParen, 2)),
-            Ok((2, Tok::RParen, 3)),
-            Ok((3, Tok::Semicolon, 4)),
-        ];
-        assert_eq!(&expected, spans.as_slice());
+        lexes_as(
+            ",()",
+            &[
+                (0, Tok::Comma, 1),
+                (1, Tok::LParen, 2),
+                (2, Tok::RParen, 3),
+                (3, Tok::Semicolon, 4),
+            ],
+        );
     }
 
     #[test]
     fn test_semicolon_insertion() {
-        let test = "let a = 5\nprint(a + 4.5)";
-        let spans: Vec<_> = Lexer::new(test).collect();
-        let expected = [
-            Ok((0, Tok::Let, 3)),
-            Ok((4, Tok::Ident("a"), 5)),
-            Ok((6, Tok::Equals, 7)),
-            Ok((8, Tok::Int("5"), 9)),
-            Ok((9, Tok::Semicolon, 10)),
-            Ok((10, Tok::Ident("print"), 15)),
-            Ok((15, Tok::LParen, 16)),
-            Ok((16, Tok::Ident("a"), 17)),
-            Ok((18, Tok::Plus, 19)),
-            Ok((20, Tok::Float("4.5"), 23)),
-            Ok((23, Tok::RParen, 24)),
-            // There's no newline but it still inserts a semicolon at the end! (as if there's a
-            // phantom newline)
-            Ok((24, Tok::Semicolon, 25)),
-        ];
-        assert_eq!(&expected, spans.as_slice());
+        lexes_as(
+            "let a = 5\nprint(a + 4.5)",
+            &[
+                (0, Tok::Let, 3),
+                (4, Tok::Ident("a"), 5),
+                (6, Tok::Equals, 7),
+                (8, Tok::Int("5"), 9),
+                (9, Tok::Semicolon, 10),
+                (10, Tok::Ident("print"), 15),
+                (15, Tok::LParen, 16),
+                (16, Tok::Ident("a"), 17),
+                (18, Tok::Plus, 19),
+                (20, Tok::Float("4.5"), 23),
+                (23, Tok::RParen, 24),
+                // There's no newline but it still inserts a semicolon at the end! (as if there's a
+                // phantom newline)
+                (24, Tok::Semicolon, 25),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_semicolons_method_chaining() {
+        lexes_as(
+            "foo\n.bar()\n.baz()",
+            &[
+                (0, Tok::Ident("foo"), 3),
+                (4, Tok::Dot, 5),
+                (5, Tok::Ident("bar"), 8),
+                (8, Tok::LParen, 9),
+                (9, Tok::RParen, 10),
+                (11, Tok::Dot, 12),
+                (12, Tok::Ident("baz"), 15),
+                (15, Tok::LParen, 16),
+                (16, Tok::RParen, 17),
+                (17, Tok::Semicolon, 18),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_string() {
+        lexes_as(
+            "\"Hello, World!\"",
+            &[
+                (0, Tok::String("\"Hello, World!\""), 15),
+                (15, Tok::Semicolon, 16),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_int_hex() {
+        lexes_as(
+            "0xDEADbeef",
+            &[(0, Tok::Int("0xDEADbeef"), 10), (11, Tok::Semicolon, 12)],
+        );
     }
 
     #[test]
     fn test_shebang() {
-        let test = "#!/usr/bin/env mana\r\n(()\r\n";
-        let spans: Vec<_> = Lexer::new(test).collect();
-        let expected = [
-            Ok((21, Tok::LParen, 22)),
-            Ok((22, Tok::LParen, 23)),
-            Ok((23, Tok::RParen, 24)),
-            Ok((25, Tok::Semicolon, 26)),
-        ];
-        assert_eq!(&expected, spans.as_slice());
+        lexes_as(
+            "#!/usr/bin/env mana\r\n(()\r\n",
+            &[
+                (21, Tok::LParen, 22),
+                (22, Tok::LParen, 23),
+                (23, Tok::RParen, 24),
+                (25, Tok::Semicolon, 26),
+            ],
+        );
     }
 }
