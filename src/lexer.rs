@@ -46,16 +46,38 @@ pub enum Tok<'input> {
     DotDotEq,
     #[token("+")]
     Plus,
+    #[token("+=")]
+    PlusEq,
     #[token("-")]
     Minus,
+    #[token("-=")]
+    MinusEq,
     #[token("*")]
     Star,
+    #[token("*=")]
+    StarEq,
     #[token("/")]
     Slash,
+    #[token("/=")]
+    SlashEq,
 
     // Keywords
     #[token("fn")]
     Fn,
+    #[token("struct")]
+    Struct,
+    #[token("enum")]
+    Enum,
+    #[token("trait")]
+    Trait,
+    #[token("type")]
+    Type,
+    #[token("impl")]
+    Impl,
+    #[token("import")]
+    Import,
+    #[token("pub")]
+    Pub,
     #[token("let")]
     Let,
     #[token("if")]
@@ -138,11 +160,22 @@ impl fmt::Display for Tok<'_> {
             Tok::DotDot => "..",
             Tok::DotDotEq => "..=",
             Tok::Plus => "+",
+            Tok::PlusEq => "+=",
             Tok::Minus => "-",
+            Tok::MinusEq => "-=",
             Tok::Star => "*",
+            Tok::StarEq => "*=",
             Tok::Slash => "/",
+            Tok::SlashEq => "/=",
 
             Tok::Fn => "fn",
+            Tok::Struct => "struct",
+            Tok::Enum => "enum",
+            Tok::Trait => "trait",
+            Tok::Type => "type",
+            Tok::Impl => "impl",
+            Tok::Import => "import",
+            Tok::Pub => "pub",
             Tok::Let => "let",
             Tok::If => "if",
             Tok::Else => "else",
