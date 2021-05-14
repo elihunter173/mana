@@ -225,10 +225,11 @@ impl fmt::Display for LexError {
 
 pub struct Lexer<'input> {
     // i can't figure out a nicer way than justl isting this ugly type
-    inner: iter::Chain<
-        logos::SpannedIter<'input, Tok<'input>>,
-        iter::Once<(Tok<'input>, logos::Span)>,
-    >,
+    inner: logos::SpannedIter<'input, Tok<'input>>,
+    // inner: iter::Chain<
+    //     logos::SpannedIter<'input, Tok<'input>>,
+    //     iter::Once<(Tok<'input>, logos::Span)>,
+    // >,
     prev: Option<Tok<'input>>,
     next: Option<Spanned<'input>>,
     offset: usize,
@@ -248,9 +249,8 @@ impl<'input> Lexer<'input> {
         }
 
         Self {
-            inner: LogosLexer::new(text)
-                .spanned()
-                .chain(std::iter::once((Tok::Newline, text.len()..text.len() + 1))),
+            inner: LogosLexer::new(text).spanned(),
+            // .chain(std::iter::once((Tok::Newline, text.len()..text.len() + 1))),
             prev: None,
             next: None,
             offset,
@@ -339,12 +339,7 @@ mod test {
     fn test_punctuation() {
         assert_lex(
             ",()",
-            &[
-                (0, Tok::Comma, 1),
-                (1, Tok::LParen, 2),
-                (2, Tok::RParen, 3),
-                (3, Tok::Semicolon, 4),
-            ],
+            &[(0, Tok::Comma, 1), (1, Tok::LParen, 2), (2, Tok::RParen, 3)],
         );
     }
 
@@ -364,9 +359,6 @@ mod test {
                 (18, Tok::Plus, 19),
                 (20, Tok::Float("4.5"), 23),
                 (23, Tok::RParen, 24),
-                // There's no newline but it still inserts a semicolon at the end! (as if there's a
-                // phantom newline)
-                (24, Tok::Semicolon, 25),
             ],
         );
     }
@@ -385,7 +377,6 @@ mod test {
                 (12, Tok::Ident("baz"), 15),
                 (15, Tok::LParen, 16),
                 (16, Tok::RParen, 17),
-                (17, Tok::Semicolon, 18),
             ],
         );
     }
@@ -394,39 +385,24 @@ mod test {
     fn test_string() {
         assert_lex(
             "\"Hello, World!\"",
-            &[
-                (0, Tok::String("\"Hello, World!\""), 15),
-                (15, Tok::Semicolon, 16),
-            ],
+            &[(0, Tok::String("\"Hello, World!\""), 15)],
         );
     }
 
     // TODO: See https://github.com/maciejhirsz/logos/issues/203
     #[test]
     fn test_int_hex() {
-        assert_lex(
-            "0xDEADbeef",
-            &[(0, Tok::IntHex("0xDEADbeef"), 10), (10, Tok::Semicolon, 11)],
-        );
+        assert_lex("0xDEADbeef", &[(0, Tok::IntHex("0xDEADbeef"), 10)]);
     }
 
     #[test]
     fn test_int_oct() {
-        assert_lex(
-            "0xDEADbeef",
-            &[(0, Tok::IntOct("0o755"), 5), (5, Tok::Semicolon, 6)],
-        );
+        assert_lex("0xDEADbeef", &[(0, Tok::IntOct("0o755"), 5)]);
     }
 
     #[test]
     fn test_int_bin() {
-        assert_lex(
-            "0b1111_0011",
-            &[
-                (0, Tok::IntBin("0b1111_0011"), 11),
-                (11, Tok::Semicolon, 12),
-            ],
-        );
+        assert_lex("0b1111_0011", &[(0, Tok::IntBin("0b1111_0011"), 11)]);
     }
 
     #[test]
