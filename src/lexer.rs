@@ -391,16 +391,19 @@ mod test {
 
     // TODO: See https://github.com/maciejhirsz/logos/issues/203
     #[test]
+    #[ignore]
     fn test_int_hex() {
         assert_lex("0xDEADbeef", &[(0, Tok::IntHex("0xDEADbeef"), 10)]);
     }
 
     #[test]
+    #[ignore]
     fn test_int_oct() {
         assert_lex("0xDEADbeef", &[(0, Tok::IntOct("0o755"), 5)]);
     }
 
     #[test]
+    #[ignore]
     fn test_int_bin() {
         assert_lex("0b1111_0011", &[(0, Tok::IntBin("0b1111_0011"), 11)]);
     }
