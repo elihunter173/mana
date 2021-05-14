@@ -134,6 +134,10 @@ Let: Expr = {
 
 Set: Expr = {
     <id:Ident> "=" <e:Expr> => Expr::Set(id, Box::new(e)),
+    <id:Ident> "+=" <e:Expr> => Expr::Set(id.clone(), Box::new(Expr::Binary(BinOp::Add, Box::new(Expr::Ident(id)), Box::new(e)))),
+    <id:Ident> "-=" <e:Expr> => Expr::Set(id.clone(), Box::new(Expr::Binary(BinOp::Sub, Box::new(Expr::Ident(id)), Box::new(e)))),
+    <id:Ident> "*=" <e:Expr> => Expr::Set(id.clone(), Box::new(Expr::Binary(BinOp::Mul, Box::new(Expr::Ident(id)), Box::new(e)))),
+    <id:Ident> "/=" <e:Expr> => Expr::Set(id.clone(), Box::new(Expr::Binary(BinOp::Div, Box::new(Expr::Ident(id)), Box::new(e)))),
 };
 
 ExprTier<Op, NextTier>: Expr = {
@@ -229,6 +233,8 @@ String: Literal = {
     "String" => {
         // The string is currently completely unprocessed
         let s = <>;
-        Literal::String(s[1..s.len()-1].to_owned())
+        // Unescape quotes
+        let s = s[1..s.len()-1].replace("\\\"", "\"");
+        Literal::String(s)
     }
 };
