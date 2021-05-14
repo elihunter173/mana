@@ -50,14 +50,14 @@ impl Literal {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Ident {
     pub name: String,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TypePath {
-    pub paths: Vec<Ident>,
+    pub path: Vec<Ident>,
 }
 
 // Is this a good way to do things?
@@ -66,7 +66,17 @@ pub struct TypePath {
 //   kind: ExprKind,
 // }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Item {
+    FnDef {
+        name: Ident,
+        args: Vec<(Ident, TypePath)>,
+        return_type: Option<TypePath>,
+        body: Vec<Expr>,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Expr {
     Ident(Ident),
     Literal(Literal),
@@ -162,10 +172,15 @@ mod tests {
         (String &str)
     );
 
-    // This is a macro rather than a function because the return value is really hairy
+    // These are a macros rather than a function because the return value is really hairy
     macro_rules! expr {
         ($code:literal) => {
             ExprParser::new().parse($code, Lexer::new($code))
+        };
+    }
+    macro_rules! item {
+        ($code:literal) => {
+            ItemParser::new().parse($code, Lexer::new($code))
         };
     }
 
@@ -247,6 +262,30 @@ mod tests {
                 b(Binary(Sub, b(Literal(4.into())), b(Literal(5.into())))),
             )),
         ));
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn test_fn_def() {
+        let got = item!(
+            "
+fn the_answer() -> UInt {
+    42
+}
+"
+        );
+        let want = Ok(Item::FnDef {
+            name: Ident {
+                name: "the_answer".into(),
+            },
+            args: vec![],
+            return_type: Some(TypePath {
+                path: vec![Ident {
+                    name: "UInt".into(),
+                }],
+            }),
+            body: vec![Expr::Literal(42.into())],
+        });
         assert_eq!(got, want);
     }
 }

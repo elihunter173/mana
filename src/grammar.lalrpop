@@ -1,4 +1,4 @@
-use crate::ast::{UnaryOp, BinOp, Expr, Ident, TypePath, Literal};
+use crate::ast::{UnaryOp, BinOp, Expr, Item, Ident, TypePath, Literal};
 use crate::lexer::{LexError, Loc, Tok};
 
 // XXX: I have things I test marked as pub(crate)
@@ -83,7 +83,22 @@ Delimited<T, Delimiter>: Vec<T> = {
 
 Comma<T> = Delimited<T, ",">;
 
-pub Program = Delimited<Expr, ";">;
+pub Program = Delimited<Item, ";">;
+
+pub(crate) Item: Item = {
+    FnDef,
+}
+
+FnDef: Item = {
+    "fn" <name:Ident> "(" <args: Comma<(<Ident> ":" <TypePath>)>> ")" <return_type:("->" <TypePath>)?> <body:Block> => {
+        Item::FnDef {
+            name,
+            args,
+            return_type,
+            body,
+        }
+    }
+}
 
 pub(crate) Expr: Expr = {
     ExprP0,
@@ -198,7 +213,7 @@ Ident: Ident = {
 TypePath: TypePath = {
     <mut parents:(<Ident> ".")*> <typ:Ident> => {
         parents.push(typ);
-        TypePath { paths: parents }
+        TypePath { path: parents }
     },
 };
 

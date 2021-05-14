@@ -47,12 +47,12 @@ impl JIT {
         // TODO: This is definitely not how I should be doing this
         let mut db = DatabaseStruct::default();
         db.set_source_code(input.to_owned());
-        let program = db.parse().unwrap().exprs;
+        let program = db.parse().unwrap().items;
 
         let name = "TODO";
 
         // Then, translate the AST nodes into Cranelift IR.
-        self.translate(&program)?;
+        // self.translate(&program)?;
 
         // Next, declare the function to jit. Functions must be declared before they can be called,
         // or defined.

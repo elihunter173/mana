@@ -1,8 +1,8 @@
-use crate::{ast::Expr, grammar::ProgramParser, lexer::Lexer};
+use crate::{ast::Item, grammar::ProgramParser, lexer::Lexer};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Parsed {
-    pub exprs: Vec<Expr>,
+    pub items: Vec<Item>,
 }
 
 #[salsa::query_group(ParserGroup)]
@@ -20,7 +20,7 @@ fn parse(db: &dyn Parser) -> Result<Parsed, String> {
     let lexer = Lexer::new(&code);
     // TODO: Improve error handling
     match parser.parse(&code, lexer) {
-        Ok(exprs) => Ok(Parsed { exprs }),
+        Ok(items) => Ok(Parsed { items }),
         Err(err) => Err(err.to_string()),
     }
 }

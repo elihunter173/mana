@@ -1,6 +1,7 @@
 #![feature(hash_set_entry)]
 // I'm working on things and those errors are noisy
 #![allow(dead_code)]
+#![allow(unused_imports)]
 
 mod ast;
 mod intern;
@@ -71,8 +72,8 @@ fn parse_and_print(mut f: File) {
     db.set_source_code(program);
     match db.parse() {
         Ok(parsed) => {
-            for expr in parsed.exprs {
-                println!("{:?}", expr);
+            for x in parsed.items {
+                println!("{:?}", x);
             }
         }
         Err(err) => println!("Error: {}", err),
@@ -115,8 +116,8 @@ fn repl() {
                 db.set_source_code(line);
                 match db.parse() {
                     Ok(parsed) => {
-                        for expr in parsed.exprs {
-                            println!("{:?}", expr);
+                        for x in parsed.items {
+                            println!("{:?}", x);
                         }
                         // for stmt in stmts {
                         //     let mut comp = Compiler::new();
