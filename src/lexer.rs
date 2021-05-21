@@ -121,19 +121,17 @@ pub enum Tok<'input> {
     // TODO: Maybe be more liberal with allowed input?
     #[regex(r#""([^\\"]|\\")*""#)]
     String(&'input str),
-    // TODO: You can't have multiple regexes for a single item
     #[regex(r"[0-9][_0-9]*")]
     Int(&'input str),
-    // TODO: For some reason these lexes fail
-    #[regex(r"0x[_0-9a-fA-F]*[0-9a-fA-F][_0-9a-fA-F]*")]
+    #[regex(r"0x_*[0-9a-fA-F][_0-9a-fA-F]*")]
     IntHex(&'input str),
-    #[regex(r"0o[_0-7]*[0-7][_0-7]*")]
+    #[regex(r"0o_*[0-7][_0-7]*")]
     IntOct(&'input str),
-    #[regex(r"0b[_01]*[01][_01]*")]
+    #[regex(r"0b_*[01][_01]*")]
     IntBin(&'input str),
     // First option has mandatory decimal and no e suffix. Section option has optional decimal and
     // an e suffix
-    #[regex(r"[0-9][_0-9]*(\.[0-9][_0-9]*)?[eE][+-]?[_0-9]*[0-9][_0-9]*")]
+    #[regex(r"[0-9][_0-9]*(\.[0-9][_0-9]*)?[eE][+-]?_*[0-9][_0-9]*")]
     #[regex(r"[0-9][_0-9]*\.[0-9][_0-9]*")]
     Float(&'input str),
 
@@ -391,23 +389,24 @@ mod test {
 
     // TODO: See https://github.com/maciejhirsz/logos/issues/203
     #[test]
-    #[ignore]
     fn test_int_hex() {
         assert_lex("0xDEADbeef", &[(0, Tok::IntHex("0xDEADbeef"), 10)]);
     }
 
     #[test]
-    #[ignore]
     fn test_int_oct() {
-        assert_lex("0xDEADbeef", &[(0, Tok::IntOct("0o755"), 5)]);
+        assert_lex("0o755", &[(0, Tok::IntOct("0o755"), 5)]);
     }
 
     #[test]
-    #[ignore]
     fn test_int_bin() {
         assert_lex("0b1111_0011", &[(0, Tok::IntBin("0b1111_0011"), 11)]);
     }
 
+    #[test]
+    fn test_float() {
+        assert_lex("1_000.123_456e+3", &[(0, Tok::Float("1_000.123_456e+3"), 16)]);
+    }
     #[test]
     fn test_shebang() {
         assert_lex(
