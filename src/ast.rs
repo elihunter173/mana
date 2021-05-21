@@ -74,6 +74,9 @@ pub enum Item {
         return_type: Option<TypePath>,
         body: Vec<Expr>,
     },
+    Import {
+        ty_path: TypePath,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

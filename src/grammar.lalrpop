@@ -85,8 +85,11 @@ Comma<T> = Delimited<T, ",">;
 
 pub Program = Delimited<Item, ";">;
 
+// TODO: Add visibility
+
 pub(crate) Item: Item = {
     FnDef,
+    Import,
 }
 
 FnDef: Item = {
@@ -94,9 +97,20 @@ FnDef: Item = {
         Item::FnDef {
             name,
             args,
+            name,
+            args,
             return_type,
             body,
         }
+            return_type,
+            body,
+        }
+    }
+}
+
+Import: Item = {
+    "import" <ty_path:TypePath> => {
+        Item::Import { ty_path }
     }
 }
 
