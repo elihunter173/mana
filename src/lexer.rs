@@ -135,6 +135,8 @@ pub enum Tok<'input> {
     #[regex(r"[0-9][_0-9]*\.[0-9][_0-9]*")]
     Float(&'input str),
 
+    #[regex(r"//.*\n")]
+    Comment(&'input str),
     // Whitespace and other errors
     #[error]
     #[regex(r"[ \t\r\f]+", logos::skip)]
@@ -203,7 +205,8 @@ impl fmt::Display for Tok<'_> {
             | Tok::IntHex(s)
             | Tok::IntOct(s)
             | Tok::IntBin(s)
-            | Tok::Float(s) => s,
+            | Tok::Float(s)
+            | Tok::Comment(s) => s,
 
             Tok::Error => "ERR",
         })
@@ -263,23 +266,26 @@ impl<'input> Lexer<'input> {
 impl<'input> Iterator for Lexer<'input> {
     type Item = Spanned<'input>;
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(next) = self.next.take() {
-            return Some(next);
-        }
+        let current = self
+            .next
+            .or_else(|| self.inner.next().map(|x| self.convert_logos_lexeme(x)));
 
-        let rtn = match self.inner.next() {
+        let rtn = match current {
             // TODO: Is self.prev handled sensibly here? That is, should I update self.prev to be
             // Tok::Newline?
-            Some((Tok::Newline, span)) => {
+            Some(Ok((start, Tok::Newline, end))) => {
                 let next = self.inner.find(|(tok, _)| *tok != Tok::Newline);
 
-                if should_skip_semicolon(self.prev, next.clone().map(|(tok, _span)| tok)) {
+                if should_skip_semicolon(
+                    dbg!(self.prev),
+                    dbg!(next.clone().map(|(tok, _span)| tok)),
+                ) {
                     // We're skipping this one so we don't need to update the return
                     next.map(|x| self.convert_logos_lexeme(x))
                 } else {
                     // Stash away next to return later
                     self.next = next.map(|x| self.convert_logos_lexeme(x));
-                    Some(self.convert_logos_lexeme((Tok::Semicolon, span)))
+                    Some(Ok((start, Tok::Semicolon, end)))
                 }
             }
 
@@ -287,7 +293,7 @@ impl<'input> Iterator for Lexer<'input> {
 
             // Normal token
             None => None,
-            Some(lexeme) => Some(self.convert_logos_lexeme(lexeme)),
+            Some(lexeme) => Some(lexeme),
         };
 
         self.prev = if let Some(Ok((_start, tok, _end))) = rtn {
@@ -405,8 +411,48 @@ mod test {
 
     #[test]
     fn test_float() {
-        assert_lex("1_000.123_456e+3", &[(0, Tok::Float("1_000.123_456e+3"), 16)]);
+        assert_lex(
+            "1_000.123_456e+3",
+            &[(0, Tok::Float("1_000.123_456e+3"), 16)],
+        );
     }
+
+    #[test]
+    fn test_comment() {
+        assert_lex(
+            r#"
+// This is just a silly function to test comments
+fn foo() -> UInt {
+    print("running foo")
+    42
+}
+"#,
+            &[
+                (
+                    1,
+                    Tok::Comment("// This is just a silly function to test comments\n"),
+                    51,
+                ),
+                (51, Tok::Fn, 53),
+                (54, Tok::Ident("foo"), 57),
+                (57, Tok::LParen, 58),
+                (58, Tok::RParen, 59),
+                (60, Tok::SingleArrow, 62),
+                (63, Tok::Ident("UInt"), 67),
+                (68, Tok::LCurly, 69),
+                (74, Tok::Ident("print"), 79),
+                (80, Tok::LParen, 81),
+                (81, Tok::String("\"running foo\""), 93),
+                (93, Tok::RParen, 94),
+                (94, Tok::Semicolon, 95),
+                (99, Tok::Int("42"), 101),
+                (101, Tok::Semicolon, 102),
+                (102, Tok::RCurly, 103),
+                (103, Tok::Semicolon, 104),
+            ],
+        );
+    }
+
     #[test]
     fn test_shebang() {
         assert_lex(

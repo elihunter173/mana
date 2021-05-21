@@ -97,11 +97,6 @@ FnDef: Item = {
         Item::FnDef {
             name,
             args,
-            name,
-            args,
-            return_type,
-            body,
-        }
             return_type,
             body,
         }
