@@ -232,7 +232,7 @@ pub struct Lexer<'input> {
     //     iter::Once<(Tok<'input>, logos::Span)>,
     // >,
     prev: Option<Tok<'input>>,
-    next: Option<Spanned<'input>>,
+    next: Option<(usize, Tok<'input>, usize)>,
     offset: usize,
 }
 
@@ -258,8 +258,11 @@ impl<'input> Lexer<'input> {
         }
     }
 
-    fn convert_logos_lexeme(&self, (tok, span): (Tok<'input>, logos::Span)) -> Spanned<'input> {
-        Ok((self.offset + span.start, tok, self.offset + span.end))
+    fn convert_logos_lexeme(
+        &self,
+        (tok, span): (Tok<'input>, logos::Span),
+    ) -> (usize, Tok<'input>, usize) {
+        (self.offset + span.start, tok, self.offset + span.end)
     }
 }
 
@@ -268,24 +271,26 @@ impl<'input> Iterator for Lexer<'input> {
     fn next(&mut self) -> Option<Self::Item> {
         let current = self
             .next
+            .take()
             .or_else(|| self.inner.next().map(|x| self.convert_logos_lexeme(x)));
 
         let rtn = match current {
             // TODO: Is self.prev handled sensibly here? That is, should I update self.prev to be
             // Tok::Newline?
-            Some(Ok((start, Tok::Newline, end))) => {
-                let next = self.inner.find(|(tok, _)| *tok != Tok::Newline);
+            Some((start, Tok::Newline, end)) => {
+                let next = self
+                    .inner
+                    .find(|(tok, _)| *tok != Tok::Newline)
+                    .map(|x| self.convert_logos_lexeme(x));
+                let next_tok = next.map(|(_start, tok, _end)| tok);
 
-                if should_skip_semicolon(
-                    dbg!(self.prev),
-                    dbg!(next.clone().map(|(tok, _span)| tok)),
-                ) {
+                if should_skip_semicolon(self.prev, next_tok) {
                     // We're skipping this one so we don't need to update the return
-                    next.map(|x| self.convert_logos_lexeme(x))
+                    next
                 } else {
                     // Stash away next to return later
-                    self.next = next.map(|x| self.convert_logos_lexeme(x));
-                    Some(Ok((start, Tok::Semicolon, end)))
+                    self.next = next;
+                    Some((start, Tok::Semicolon, end))
                 }
             }
 
@@ -296,13 +301,9 @@ impl<'input> Iterator for Lexer<'input> {
             Some(lexeme) => Some(lexeme),
         };
 
-        self.prev = if let Some(Ok((_start, tok, _end))) = rtn {
-            Some(tok)
-        } else {
-            None
-        };
+        self.prev = rtn.map(|(_start, tok, _end)| tok);
 
-        rtn
+        rtn.map(Ok)
     }
 }
 
@@ -441,8 +442,8 @@ fn foo() -> UInt {
                 (63, Tok::Ident("UInt"), 67),
                 (68, Tok::LCurly, 69),
                 (74, Tok::Ident("print"), 79),
-                (80, Tok::LParen, 81),
-                (81, Tok::String("\"running foo\""), 93),
+                (79, Tok::LParen, 80),
+                (80, Tok::String("\"running foo\""), 93),
                 (93, Tok::RParen, 94),
                 (94, Tok::Semicolon, 95),
                 (99, Tok::Int("42"), 101),

@@ -273,8 +273,7 @@ mod tests {
             "
 fn the_answer() -> UInt {
     42
-}
-"
+}"
         );
         let want = Ok(Item::FnDef {
             name: Ident {
