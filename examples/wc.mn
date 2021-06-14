@@ -3,7 +3,7 @@
 import std.io.Stdin
 
 let lines = 0, words = 0, chars = 0
-Stdin.lines.for_each line -> {
+Stdin.lines.each() \line -> {
     lines += 1
     words += line.split(" ").count()
     chars += line.chars().count()

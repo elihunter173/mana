@@ -17,5 +17,5 @@ impl Iterator {
 }
 
 pub fn repeat(n: UInt, f: fn()) {
-  (0..n).for_each _i -> f()
+  (0..n).for_each(f)
 }
