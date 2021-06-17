@@ -22,6 +22,10 @@ pub enum Tok<'input> {
     Newline,
     #[token("->")]
     SingleArrow,
+    #[token("@")]
+    At,
+    #[token("\\")]
+    Backslash,
     #[token("(")]
     LParen,
     #[token(")")]
@@ -118,6 +122,8 @@ pub enum Tok<'input> {
     False,
     #[regex(r"[a-zA-Z_][0-9a-zA-Z_]*")]
     Ident(&'input str),
+    #[regex(r"\$[0-9]+")]
+    ClosureArg(&'input str),
     // TODO: Maybe be more liberal with allowed input?
     #[regex(r#""([^\\"]|\\")*""#)]
     String(&'input str),
@@ -151,6 +157,8 @@ impl fmt::Display for Tok<'_> {
             Tok::Semicolon => ";",
             Tok::Newline => "\n",
             Tok::SingleArrow => "->",
+            Tok::At => "@",
+            Tok::Backslash => "\\",
             Tok::LParen => "(",
             Tok::RParen => ")",
             Tok::LCurly => "{",
@@ -200,6 +208,7 @@ impl fmt::Display for Tok<'_> {
             Tok::False => "false",
             // TODO: The String is malformatted
             Tok::Ident(s)
+            | Tok::ClosureArg(s)
             | Tok::String(s)
             | Tok::Int(s)
             | Tok::IntHex(s)
@@ -382,6 +391,54 @@ mod test {
                 (12, Tok::Ident("baz"), 15),
                 (15, Tok::LParen, 16),
                 (16, Tok::RParen, 17),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_ident() {
+        assert_lex("foo", &[(0, Tok::Ident("foo"), 3)]);
+    }
+
+    #[test]
+    fn test_closure_arg() {
+        assert_lex("$123", &[(0, Tok::ClosureArg("$123"), 4)]);
+    }
+
+    #[test]
+    fn test_lambda() {
+        assert_lex(
+            "\\a, b -> (a*a) + (2*a*b) + (b*b)",
+            &[
+                (0, Tok::Backslash, 1),
+                (1, Tok::Ident("a"), 2),
+                (2, Tok::Comma, 3),
+                (4, Tok::Ident("b"), 5),
+                (6, Tok::SingleArrow, 8),
+                //
+                (9, Tok::LParen, 10),
+                (10, Tok::Ident("a"), 11),
+                (11, Tok::Star, 12),
+                (12, Tok::Ident("a"), 13),
+                (13, Tok::RParen, 14),
+                //
+                (15, Tok::Plus, 16),
+                //
+                (17, Tok::LParen, 18),
+                (18, Tok::Int("2"), 19),
+                (19, Tok::Star, 20),
+                (20, Tok::Ident("a"), 21),
+                (21, Tok::Star, 22),
+                (22, Tok::Ident("b"), 23),
+                (23, Tok::RParen, 24),
+                //
+                (25, Tok::Plus, 26),
+                //
+                (27, Tok::LParen, 28),
+                (28, Tok::Ident("b"), 29),
+                (29, Tok::Star, 30),
+                (30, Tok::Ident("b"), 31),
+                (31, Tok::RParen, 32),
             ],
         );
     }
