@@ -47,15 +47,15 @@ fn main() {
 
     // crate::queries::main();
 
-    if let Some(ref matches) = matches.subcommand_matches("parse") {
+    if let Some(matches) = matches.subcommand_matches("parse") {
         let path = matches.value_of("INPUT").unwrap();
         let file = File::open(path).unwrap();
         parse_and_print(file);
-    } else if let Some(ref matches) = matches.subcommand_matches("lex") {
+    } else if let Some(matches) = matches.subcommand_matches("lex") {
         let path = matches.value_of("INPUT").unwrap();
         let file = File::open(path).unwrap();
         lex(file);
-    } else if let Some(ref matches) = matches.subcommand_matches("run") {
+    } else if let Some(matches) = matches.subcommand_matches("run") {
         let path = matches.value_of("INPUT").unwrap();
         let file = File::open(path).unwrap();
         run(file);
