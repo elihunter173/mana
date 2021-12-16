@@ -2,10 +2,7 @@
 name = "mana"
 version = "0.1.0"
 authors = ["Eli W. Hunter <elihunter173@gmail.com>"]
-edition = "2018"
-
-[build-dependencies]
-lalrpop = "0.19"
+edition = "2021"
 
 [dependencies]
 # Lazy error handling
@@ -20,13 +17,11 @@ salsa = "0.16"
 # Lexer
 logos = "0.12"
 
-# Parser
-lalrpop-util = "0.19"
-regex = "1"
-# bumpalo = { version = "3.4", features = ["boxed", "collections"] }
+# TODO: Use codespan-reporting for error messages
+
 # Repl
 rustyline = "7.1"
-clap = { version = "3.0.0-beta.2", features = [] }
+clap = { version = "3.0.0-rc.6", features = ["derive"] }
 
 # Compilation
 cranelift = "0.72.0"

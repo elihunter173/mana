@@ -6,8 +6,7 @@ use cranelift_module::{DataContext, Linkage, Module};
 
 use crate::{
     ast::{BinOp, Expr, Literal},
-    grammar::ProgramParser,
-    parser::{DatabaseStruct, Parser},
+    queries::{DatabaseStruct, Program},
 };
 
 /// The basic JIT class.

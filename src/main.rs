@@ -5,62 +5,54 @@
 
 mod ast;
 mod intern;
-mod jit;
-mod lexer;
-mod parser;
+// mod jit;
+mod lex;
+mod parse;
 mod queries;
 mod ty;
-lalrpop_mod!(grammar);
 
 use std::{fs::File, io::Read};
 
-use clap::clap_app;
-use lalrpop_util::lalrpop_mod;
+use clap::{Parser, Subcommand};
 use rustyline::{error::ReadlineError, Editor};
 
 use crate::{
-    jit::JIT,
-    lexer::Lexer,
-    parser::{DatabaseStruct, Parser},
+    // jit::JIT,
+    lex::Lexer,
+    queries::{DatabaseStruct, Program},
 };
 
+#[derive(Parser)]
+#[clap(version = "0.1.0", author = "Eli W. Hunter <elihunter173@gmail.com>")]
+struct Opts {
+    #[clap(subcommand)]
+    subcmd: Option<ManaCommand>,
+}
+
+#[derive(Subcommand)]
+enum ManaCommand {
+    Lex { path: String },
+    Parse { path: String },
+    // Run { path: String },
+}
+
 fn main() {
-    // TODO: Switch to structopt version???
-    let matches = clap_app!(myapp =>
-        (version: "0.1.0")
-        (author: "Eli W. Hunter <elihunter173@gmail.com>")
-        (about: "Mana language frontend")
-        (@subcommand lex =>
-            (about: "Lex .mn file")
-            (@arg INPUT: +required "Sets the input file to use")
-        )
-        (@subcommand parse =>
-            (about: "Parse .mn file")
-            (@arg INPUT: +required "Sets the input file to use")
-        )
-        (@subcommand run =>
-            (about: "Run .mn file")
-            (@arg INPUT: +required "Sets the input file to use")
-        )
-    )
-    .get_matches();
+    let opts = Opts::parse();
 
-    // crate::queries::main();
-
-    if let Some(matches) = matches.subcommand_matches("parse") {
-        let path = matches.value_of("INPUT").unwrap();
-        let file = File::open(path).unwrap();
-        parse_and_print(file);
-    } else if let Some(matches) = matches.subcommand_matches("lex") {
-        let path = matches.value_of("INPUT").unwrap();
-        let file = File::open(path).unwrap();
-        lex(file);
-    } else if let Some(matches) = matches.subcommand_matches("run") {
-        let path = matches.value_of("INPUT").unwrap();
-        let file = File::open(path).unwrap();
-        run(file);
-    } else {
-        repl();
+    match opts.subcmd {
+        Some(ManaCommand::Lex { path }) => {
+            let file = File::open(path).unwrap();
+            lex(file);
+        }
+        Some(ManaCommand::Parse { path }) => {
+            let file = File::open(path).unwrap();
+            parse_and_print(file);
+        }
+        // Some(ManaCommand::Run { path }) => {
+        //     let file = File::open(path).unwrap();
+        //     run(file);
+        // }
+        None => repl(),
     }
 }
 
@@ -90,16 +82,16 @@ fn lex(mut f: File) {
     }
 }
 
-fn run(mut f: File) {
-    let mut code = String::new();
-    f.read_to_string(&mut code).unwrap();
-    let mut jit = JIT::new();
-    let code_ptr = jit.compile(&code).unwrap();
-    // SAFETY: Whee! Hopefully the JIT compiler actually did compile to an arg-less and
-    // return-value-less procedure
-    let code_fn = unsafe { std::mem::transmute::<_, fn() -> f64>(code_ptr) };
-    println!("{}", code_fn());
-}
+// fn run(mut f: File) {
+//     let mut code = String::new();
+//     f.read_to_string(&mut code).unwrap();
+//     let mut jit = JIT::new();
+//     let code_ptr = jit.compile(&code).unwrap();
+//     // SAFETY: Whee! Hopefully the JIT compiler actually did compile to an arg-less and
+//     // return-value-less procedure
+//     let code_fn = unsafe { std::mem::transmute::<_, fn() -> f64>(code_ptr) };
+//     println!("{}", code_fn());
+// }
 
 fn repl() {
     // `()` can be used when no completer is required
