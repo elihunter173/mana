@@ -84,7 +84,7 @@ pub enum Expr {
     Binary(BinOp, Box<Expr>, Box<Expr>),
     Unary(UnaryOp, Box<Expr>),
 
-    Let(Ident, Box<Expr>),
+    Let(Ident, Option<TypePath>, Box<Expr>),
     Set(Ident, Box<Expr>),
 
     FnCall(Ident, Vec<Expr>),
@@ -109,7 +109,7 @@ impl Expr {
                 f(l);
                 f(r);
             }
-            Unary(_, x) | Let(_, x) | Set(_, x) => {
+            Unary(_, x) | Let(_, _, x) | Set(_, x) => {
                 f(x);
             }
             If { cond: _, true_expr, false_expr } => {

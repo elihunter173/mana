@@ -202,7 +202,7 @@ impl<'input> Parser<'input> {
         let expr = self.expr()?;
 
         // TODO: Use type_path
-        Ok(Expr::Let(ident, Box::new(expr)))
+        Ok(Expr::Let(ident, type_path, Box::new(expr)))
     }
 
     pub fn set(&mut self) -> ParseResult<Expr> {
@@ -527,7 +527,7 @@ mod tests {
             "
 fn the_answer(): UInt {
     42
-}"
+}",
         );
         let want = Ok(Item::FnDef {
             name: Ident("the_answer".to_owned()),
