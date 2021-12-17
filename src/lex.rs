@@ -180,6 +180,7 @@ pub struct Lexer<'input> {
     next: Option<Token>,
 }
 
+// TODO: Keep the source and use peekable. Less error prone
 impl<'input> Lexer<'input> {
     pub fn new(text: &'input str) -> Self {
         Self {
@@ -196,12 +197,13 @@ impl<'input> Lexer<'input> {
     }
 
     pub fn peek(&mut self) -> Option<Token> {
-        *self.peeked.get_or_insert_with(|| {
-            self.inner.next().map(|kind| {
-                let span = self.inner.span();
-                Token { kind, span: (span.start, span.end) }
-            })
-        })
+        if let Some(peeked) = self.peeked {
+            peeked
+        } else {
+            let next = self.next();
+            self.peeked = Some(next);
+            next
+        }
     }
 
     fn raw_next_token(&mut self) -> Option<Token> {
@@ -219,7 +221,10 @@ impl<'input> Iterator for Lexer<'input> {
     type Item = Token;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let current = self.next.take().or_else(|| self.raw_next_token());
+        let current = match self.peeked.take() {
+            Some(v) => v,
+            None => self.next.take().or_else(|| self.raw_next_token()),
+        };
 
         let rtn = match current {
             Some(Token { kind: TokenKind::Newline, span }) => {

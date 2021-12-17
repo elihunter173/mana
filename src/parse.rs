@@ -48,7 +48,7 @@ impl<'input> Parser<'input> {
     }
 
     // TODO: Is this useful?
-    fn maybe_token(&mut self, kind: TokenKind) -> Option<Token> {
+    fn try_token(&mut self, kind: TokenKind) -> Option<Token> {
         let tok = self.lexer.peek()?;
         if tok.kind != kind {
             return None;
@@ -72,7 +72,7 @@ impl<'input> Parser<'input> {
         } else {
             // TODO: Make delimited helper
             parsed.push(parser(self)?);
-            while self.maybe_token(delimiter).is_some() {
+            while self.try_token(delimiter).is_some() {
                 // This allows for trailing delimiters
                 // TODO: This is really hard to read
                 // If the token we're peeking at is what we want
@@ -94,7 +94,7 @@ impl<'input> Parser<'input> {
         if !self.finished() {
             items.push(self.item()?);
         }
-        while self.maybe_token(TokenKind::Semicolon).is_some() {
+        while self.try_token(TokenKind::Semicolon).is_some() {
             if self.finished() {
                 break;
             }
@@ -113,7 +113,26 @@ impl<'input> Parser<'input> {
     }
 
     pub fn fn_def(&mut self) -> ParseResult<Item> {
-        todo!()
+        self.token(TokenKind::Fn)?;
+        let name = self.ident()?;
+        let args = self.delimited(
+            TokenKind::LParen,
+            |parser| {
+                let ident = parser.ident()?;
+                parser.token(TokenKind::Colon)?;
+                let type_path = parser.type_path()?;
+                Ok((ident, type_path))
+            },
+            TokenKind::Comma,
+            TokenKind::RParen,
+        )?;
+        let return_type = if self.try_token(TokenKind::Colon).is_some() {
+            Some(self.type_path()?)
+        } else {
+            None
+        };
+        let body = self.block()?;
+        Ok(Item::FnDef { name, args, return_type, body })
     }
 
     pub fn import(&mut self) -> ParseResult<Item> {
@@ -125,24 +144,41 @@ impl<'input> Parser<'input> {
     pub fn expr(&mut self) -> ParseResult<Expr> {
         let tok = self.lexer.peek().ok_or(ParseError::EndOfStream)?;
         match tok.kind {
-            TokenKind::LCurly => self.block(),
+            TokenKind::LCurly => Ok(Expr::Block(self.block()?)),
             TokenKind::If => self.if_chain(),
             TokenKind::Let => self.let_(),
             _ => self.expr_at_binding(0),
         }
     }
 
-    pub fn block(&mut self) -> ParseResult<Expr> {
-        Ok(Expr::Block(self.delimited(
+    pub fn block(&mut self) -> ParseResult<Vec<Expr>> {
+        self.delimited(
             TokenKind::LCurly,
             Self::expr,
             TokenKind::Semicolon,
             TokenKind::RCurly,
-        )?))
+        )
     }
 
     pub fn if_chain(&mut self) -> ParseResult<Expr> {
-        todo!()
+        self.token(TokenKind::If)?;
+        let cond = self.expr()?;
+        let true_block = self.block()?;
+        let false_expr = if self.try_token(TokenKind::Else).is_some() {
+            let tok = self.lexer.next().ok_or(ParseError::EndOfStream)?;
+            if tok.kind == TokenKind::If {
+                Some(self.if_chain()?)
+            } else {
+                Some(Expr::Block(self.block()?))
+            }
+        } else {
+            None
+        };
+        Ok(Expr::If {
+            cond: Box::new(cond),
+            true_expr: Box::new(Expr::Block(true_block)),
+            false_expr: false_expr.map(Box::new),
+        })
     }
 
     pub fn fn_args(&mut self) -> ParseResult<Vec<Expr>> {
@@ -157,7 +193,7 @@ impl<'input> Parser<'input> {
     pub fn let_(&mut self) -> ParseResult<Expr> {
         self.token(TokenKind::Let)?;
         let ident = self.ident()?;
-        let type_path = if self.maybe_token(TokenKind::Colon).is_some() {
+        let type_path = if self.try_token(TokenKind::Colon).is_some() {
             Some(self.type_path()?)
         } else {
             None
@@ -485,28 +521,21 @@ mod tests {
         assert!(parser.finished());
     }
 
-    /*
-        #[test]
-        fn test_fn_def() {
-            let got = item!(
-                "
-    fn the_answer() -> UInt {
-        42
-    }"
-            );
-            let want = Ok(Item::FnDef {
-                name: Ident {
-                    name: "the_answer".into(),
-                },
-                args: vec![],
-                return_type: Some(TypePath {
-                    path: vec![Ident {
-                        name: "UInt".into(),
-                    }],
-                }),
-                body: vec![Expr::Literal(42.into())],
-            });
-            assert_eq!(got, want);
-        }
-        */
+    #[test]
+    fn test_fn_def() {
+        let mut parser = parser(
+            "
+fn the_answer(): UInt {
+    42
+}"
+        );
+        let want = Ok(Item::FnDef {
+            name: Ident("the_answer".to_owned()),
+            args: vec![],
+            return_type: Some(TypePath { path: vec![Ident("UInt".to_owned())] }),
+            body: vec![Expr::Literal(42.into())],
+        });
+        assert_eq!(parser.item(), want);
+        assert!(parser.finished());
+    }
 }
