@@ -1,0 +1,8 @@
+fn main(): Int {
+    let a: Int = 10 + 12
+    if 0 {
+        a
+    } else {
+        a + 2
+    }
+}

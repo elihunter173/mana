@@ -5,7 +5,7 @@
 
 mod ast;
 mod intern;
-// mod jit;
+mod jit;
 mod lex;
 mod parse;
 mod queries;
@@ -17,7 +17,7 @@ use clap::{Parser, Subcommand};
 use rustyline::{error::ReadlineError, Editor};
 
 use crate::{
-    // jit::JIT,
+    jit::JIT,
     lex::Lexer,
     queries::{DatabaseStruct, Program},
 };
@@ -33,7 +33,7 @@ struct Opts {
 enum ManaCommand {
     Lex { path: String },
     Parse { path: String },
-    // Run { path: String },
+    Run { path: String },
 }
 
 fn main() {
@@ -48,10 +48,10 @@ fn main() {
             let file = File::open(path).unwrap();
             parse_and_print(file);
         }
-        // Some(ManaCommand::Run { path }) => {
-        //     let file = File::open(path).unwrap();
-        //     run(file);
-        // }
+        Some(ManaCommand::Run { path }) => {
+            let file = File::open(path).unwrap();
+            run(file);
+        }
         None => repl(),
     }
 }
@@ -82,16 +82,16 @@ fn lex(mut f: File) {
     }
 }
 
-// fn run(mut f: File) {
-//     let mut code = String::new();
-//     f.read_to_string(&mut code).unwrap();
-//     let mut jit = JIT::new();
-//     let code_ptr = jit.compile(&code).unwrap();
-//     // SAFETY: Whee! Hopefully the JIT compiler actually did compile to an arg-less and
-//     // return-value-less procedure
-//     let code_fn = unsafe { std::mem::transmute::<_, fn() -> f64>(code_ptr) };
-//     println!("{}", code_fn());
-// }
+fn run(mut f: File) {
+    let mut code = String::new();
+    f.read_to_string(&mut code).unwrap();
+    let mut jit = JIT::new();
+    let code_ptr = jit.compile(&code).unwrap();
+    // SAFETY: Whee! Hopefully the JIT compiler actually did compile to an arg-less and
+    // return-value-less procedure
+    let code_fn = unsafe { std::mem::transmute::<_, fn() -> i64>(code_ptr) };
+    println!("{}", code_fn());
+}
 
 fn repl() {
     // `()` can be used when no completer is required
@@ -104,7 +104,7 @@ fn repl() {
         match readline {
             Ok(line) => {
                 rl.add_history_entry(line.as_str());
-                let mut parser = crate::parse::Parser::new(Lexer::new(&line));
+                let mut parser = crate::parse::Parser::new(&line);
                 match parser.expr() {
                     Ok(expr) => {
                         if parser.finished() {

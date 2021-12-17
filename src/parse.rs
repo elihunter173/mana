@@ -27,8 +27,8 @@ pub struct Parser<'input> {
 }
 
 impl<'input> Parser<'input> {
-    pub fn new(lexer: Lexer<'input>) -> Self {
-        Self { lexer }
+    pub fn new(code: &'input str) -> Self {
+        Self { lexer: Lexer::new(code) }
     }
 
     pub fn finished(&mut self) -> bool {
@@ -107,12 +107,12 @@ impl<'input> Parser<'input> {
         let tok = self.lexer.peek().ok_or(ParseError::EndOfStream)?;
         match tok.kind {
             TokenKind::Import => self.import(),
-            TokenKind::Fn => self.fn_def(),
+            TokenKind::Fn => Ok(Item::FnDef(self.fn_def()?)),
             _ => Err(ParseError::UnexpectedToken(tok)),
         }
     }
 
-    pub fn fn_def(&mut self) -> ParseResult<Item> {
+    pub fn fn_def(&mut self) -> ParseResult<FnDef> {
         self.token(TokenKind::Fn)?;
         let name = self.ident()?;
         let args = self.delimited(
@@ -120,25 +120,30 @@ impl<'input> Parser<'input> {
             |parser| {
                 let ident = parser.ident()?;
                 parser.token(TokenKind::Colon)?;
-                let type_path = parser.type_path()?;
-                Ok((ident, type_path))
+                let typepath = parser.typepath()?;
+                Ok((ident, typepath))
             },
             TokenKind::Comma,
             TokenKind::RParen,
         )?;
         let return_type = if self.try_token(TokenKind::Colon).is_some() {
-            Some(self.type_path()?)
+            Some(self.typepath()?)
         } else {
             None
         };
         let body = self.block()?;
-        Ok(Item::FnDef { name, args, return_type, body })
+        Ok(FnDef {
+            name,
+            params: args,
+            return_typepath: return_type,
+            body,
+        })
     }
 
     pub fn import(&mut self) -> ParseResult<Item> {
         self.token(TokenKind::Import)?;
-        let type_path = self.type_path()?;
-        Ok(Item::Import(type_path))
+        let typepath = self.typepath()?;
+        Ok(Item::Import(typepath))
     }
 
     pub fn expr(&mut self) -> ParseResult<Expr> {
@@ -165,7 +170,7 @@ impl<'input> Parser<'input> {
         let cond = self.expr()?;
         let true_block = self.block()?;
         let false_expr = if self.try_token(TokenKind::Else).is_some() {
-            let tok = self.lexer.next().ok_or(ParseError::EndOfStream)?;
+            let tok = self.lexer.peek().ok_or(ParseError::EndOfStream)?;
             if tok.kind == TokenKind::If {
                 Some(self.if_chain()?)
             } else {
@@ -176,8 +181,8 @@ impl<'input> Parser<'input> {
         };
         Ok(Expr::If {
             cond: Box::new(cond),
-            true_expr: Box::new(Expr::Block(true_block)),
-            false_expr: false_expr.map(Box::new),
+            then_expr: Box::new(Expr::Block(true_block)),
+            else_expr: false_expr.map(Box::new),
         })
     }
 
@@ -193,16 +198,15 @@ impl<'input> Parser<'input> {
     pub fn let_(&mut self) -> ParseResult<Expr> {
         self.token(TokenKind::Let)?;
         let ident = self.ident()?;
-        let type_path = if self.try_token(TokenKind::Colon).is_some() {
-            Some(self.type_path()?)
+        let typepath = if self.try_token(TokenKind::Colon).is_some() {
+            Some(self.typepath()?)
         } else {
             None
         };
         self.token(TokenKind::Equals)?;
         let expr = self.expr()?;
 
-        // TODO: Use type_path
-        Ok(Expr::Let(ident, type_path, Box::new(expr)))
+        Ok(Expr::Let(ident, typepath, Box::new(expr)))
     }
 
     pub fn set(&mut self) -> ParseResult<Expr> {
@@ -342,7 +346,7 @@ impl<'input> Parser<'input> {
         Ok(Ident(self.lexer.source(&tok).to_owned()))
     }
 
-    pub fn type_path(&mut self) -> ParseResult<TypePath> {
+    pub fn typepath(&mut self) -> ParseResult<TypePath> {
         let mut path = vec![self.ident()?];
         while let Some(Token { kind: TokenKind::Dot, .. }) = self.lexer.peek() {
             self.lexer.next();
@@ -404,7 +408,7 @@ mod tests {
 
     // These are a macros rather than a function because the return value is really hairy
     fn parser(code: &str) -> Parser {
-        Parser::new(Lexer::new(code))
+        Parser::new(code)
     }
 
     // TODO: Stop using .into()
@@ -445,12 +449,12 @@ mod tests {
     }
 
     #[test]
-    fn type_path() {
+    fn typepath() {
         let mut parser = parser("Foo.Bar");
         let want = Ok(TypePath {
             path: vec![Ident("Foo".to_owned()), Ident("Bar".to_owned())],
         });
-        assert_eq!(parser.type_path(), want);
+        assert_eq!(parser.typepath(), want);
         assert!(parser.finished());
     }
 

@@ -8,9 +8,6 @@ edition = "2021"
 # Lazy error handling
 anyhow = "1.0"
 
-# For Literal BigInt
-num = "0.4"
-
 # Query-based parser
 salsa = "0.16"
 

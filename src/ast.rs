@@ -1,12 +1,11 @@
 use std::str::FromStr;
 
-use num::{BigInt, Zero};
-
 // TODO: I think Literal should probably just be the string?
 #[derive(Clone, Debug)]
 pub enum Literal {
     Bool(bool),
-    Int(BigInt),
+    // TODO: This should be better
+    Int(u64),
     Float(f64),
     String(String),
 }
@@ -28,7 +27,7 @@ impl Eq for Literal {}
 impl Literal {
     pub fn parse_int(digits: &str, radix: u32) -> Self {
         // TODO: Maybe optimize this?
-        let mut num = BigInt::zero();
+        let mut num = 0;
         for b in digits.bytes() {
             let d = match b {
                 b'0'..=b'9' => b - b'0',
@@ -37,8 +36,8 @@ impl Literal {
                 b'_' => continue,
                 _ => panic!("unexpected digit {:?}", b),
             };
-            num *= radix;
-            num += d;
+            num *= radix as u64;
+            num += d as u64;
         }
 
         Self::Int(num)
@@ -67,13 +66,16 @@ pub struct TypePath {
 // }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FnDef {
+    pub name: Ident,
+    pub params: Vec<(Ident, TypePath)>,
+    pub return_typepath: Option<TypePath>,
+    pub body: Vec<Expr>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Item {
-    FnDef {
-        name: Ident,
-        args: Vec<(Ident, TypePath)>,
-        return_type: Option<TypePath>,
-        body: Vec<Expr>,
-    },
+    FnDef(FnDef),
     Import(TypePath),
 }
 
@@ -91,8 +93,8 @@ pub enum Expr {
     Block(Vec<Expr>),
     If {
         cond: Box<Expr>,
-        true_expr: Box<Expr>,
-        false_expr: Option<Box<Expr>>,
+        then_expr: Box<Expr>,
+        else_expr: Option<Box<Expr>>,
     },
 }
 
@@ -102,23 +104,30 @@ impl Expr {
     where
         F: FnMut(&Expr),
     {
-        use Expr::*;
         match self {
-            Ident(_) | Literal(_) => {}
-            Binary(_, l, r) => {
+            Expr::Ident(_) | Expr::Literal(_) => {}
+            Expr::Binary(_, l, r) => {
                 f(l);
                 f(r);
             }
-            Unary(_, x) | Let(_, _, x) | Set(_, x) => {
+            Expr::Unary(_, x) | Expr::Let(_, _, x) | Expr::Set(_, x) => {
                 f(x);
             }
-            If { cond: _, true_expr, false_expr } => {
+            Expr::If {
+                cond: _,
+                then_expr: true_expr,
+                else_expr: false_expr,
+            } => {
                 f(true_expr);
                 if let Some(false_expr) = false_expr {
                     f(false_expr);
                 }
             }
-            _ => unimplemented!(),
+            Expr::Block(exprs) => {
+                exprs.iter().for_each(f);
+            }
+            // TODO: Finish
+            _ => todo!(),
         }
     }
 }

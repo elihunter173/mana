@@ -5,9 +5,22 @@ use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataContext, Linkage, Module};
 
 use crate::{
-    ast::{BinOp, Expr, Literal},
+    ast::{self, BinOp, Expr, Literal},
+    parse::Parser,
     queries::{DatabaseStruct, Program},
 };
+
+// TODO: We just assume you return an int
+const ASSUMED_TYPE: types::Type = cranelift::codegen::ir::types::I32;
+
+// TODO: This needs to be done earlier
+fn resolve_typepath(typepath: &ast::TypePath) -> types::Type {
+    match typepath.path[0].0.as_str() {
+        "Int" => cranelift::codegen::ir::types::I32,
+        "F64" => cranelift::codegen::ir::types::F64,
+        _ => unimplemented!(),
+    }
+}
 
 /// The basic JIT class.
 pub struct JIT {
@@ -38,20 +51,19 @@ impl JIT {
         }
     }
 
-    /// Compile a string in the toy language into machine code.
+    // TODO: Make this accept an AST probably
     pub fn compile(&mut self, input: &str) -> anyhow::Result<*const u8> {
         // First, parse the string, producing AST nodes.
         // let (name, params, the_return, stmts) =
         //     parser::function(&input).map_err(|e| e.to_string())?;
         // TODO: This is definitely not how I should be doing this
-        let mut db = DatabaseStruct::default();
-        db.set_source_code(input.to_owned());
-        let program = db.parse().unwrap().items;
+        let mut parser = Parser::new(input);
+        let func = parser.fn_def().unwrap();
 
         let name = "TODO";
 
         // Then, translate the AST nodes into Cranelift IR.
-        // self.translate(&program)?;
+        self.translate(&func)?;
 
         // Next, declare the function to jit. Functions must be declared before they can be called,
         // or defined.
@@ -68,7 +80,12 @@ impl JIT {
         // be called are defined. For this toy demo for now, we'll just finalize the function
         // below.
         self.module
-            .define_function(id, &mut self.ctx, &mut codegen::binemit::NullTrapSink {})
+            .define_function(
+                id,
+                &mut self.ctx,
+                &mut codegen::binemit::NullTrapSink {},
+                &mut codegen::binemit::NullStackMapSink {},
+            )
             .unwrap();
 
         // Now that compilation is finished, we can clear out the context state.
@@ -105,22 +122,21 @@ impl JIT {
     }
 
     // Translate from toy-language AST nodes into Cranelift IR.
-    fn translate(&mut self, exprs: &[Expr]) -> anyhow::Result<()> {
-        // Our toy language currently only supports I64 values, though Cranelift supports other
-        // types.
-        let typ = cranelift::codegen::ir::types::F64;
+    fn translate(&mut self, func: &ast::FnDef) -> anyhow::Result<()> {
+        assert_eq!(func.name.0, "main");
+        assert_eq!(func.params.len(), 0);
 
-        // TODO: Currently we don't return anything
-
-        let the_return = "ret";
-
-        // for _p in &params {
-        //     self.ctx.func.signature.params.push(AbiParam::new(typ));
-        // }
+        for (name, typepath) in &func.params {
+            let typ = resolve_typepath(typepath);
+            self.ctx.func.signature.params.push(AbiParam::new(typ));
+        }
 
         // Our toy language currently only supports one return value, though Cranelift is designed
         // to support more.
-        self.ctx.func.signature.returns.push(AbiParam::new(typ));
+        if let Some(return_typepath) = &func.return_typepath {
+            let typ = resolve_typepath(&return_typepath);
+            self.ctx.func.signature.returns.push(AbiParam::new(typ));
+        }
 
         // Create the builder to build a function.
         let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
@@ -141,25 +157,18 @@ impl JIT {
         // entry block, it won't have any predecessors.
         builder.seal_block(entry_block);
 
+        // TODO: This is fundamentally the wrong approach for mana
         // The toy language allows variables to be declared implicitly. Walk the AST and declare
         // all implicitly-declared variables.
-        let variables = declare_variables(typ, &mut builder, exprs, entry_block);
+        let variables = declare_variables(&mut builder, &func.body, entry_block);
 
         // Now translate the statements of the function body.
         let mut trans = FunctionTranslator {
-            typ,
             builder,
             variables,
             module: &mut self.module,
         };
-        for expr in exprs {
-            trans.translate_expr(expr);
-        }
-
-        // Set up the return variable of the function. Above, we declared a variable to hold the
-        // return value. Here, we just do a use of that variable.
-        let return_variable = trans.variables.get(the_return).unwrap();
-        let return_value = trans.builder.use_var(*return_variable);
+        let return_value = trans.translate_block(&func.body);
 
         // Emit the return instruction.
         trans.builder.ins().return_(&[return_value]);
@@ -172,7 +181,6 @@ impl JIT {
 
 /// A collection of state used for translating from toy-language AST nodes into Cranelift IR.
 struct FunctionTranslator<'a> {
-    typ: types::Type,
     builder: FunctionBuilder<'a>,
     variables: HashMap<String, Variable>,
     module: &'a mut JITModule,
@@ -184,19 +192,20 @@ impl<'a> FunctionTranslator<'a> {
     fn translate_expr(&mut self, expr: &Expr) -> Value {
         match expr {
             Expr::Literal(Literal::Float(imm)) => self.builder.ins().f64const(*imm),
-            Expr::Literal(_) => unimplemented!(),
+            Expr::Literal(Literal::Int(imm)) => self.builder.ins().iconst(ASSUMED_TYPE, *imm as i64),
 
             Expr::Binary(op, lhs, rhs) => {
                 let lhs = self.translate_expr(lhs);
                 let rhs = self.translate_expr(rhs);
                 let b = self.builder.ins();
+                // TODO: Use better types. Need more than just AST
                 match op {
-                    BinOp::Add => b.fadd(lhs, rhs),
-                    BinOp::Sub => b.fsub(lhs, rhs),
-                    BinOp::Mul => b.fmul(lhs, rhs),
-                    BinOp::Div => b.fdiv(lhs, rhs),
-                    BinOp::Eq => b.fcmp(FloatCC::Equal, lhs, rhs),
-                    BinOp::Neq => b.fcmp(FloatCC::NotEqual, lhs, rhs),
+                    BinOp::Add => b.iadd(lhs, rhs),
+                    BinOp::Sub => b.isub(lhs, rhs),
+                    BinOp::Mul => b.imul(lhs, rhs),
+                    BinOp::Div => b.sdiv(lhs, rhs),
+                    BinOp::Eq => b.icmp(IntCC::Equal, lhs, rhs),
+                    BinOp::Neq => b.icmp(IntCC::NotEqual, lhs, rhs),
                     _ => unimplemented!(),
                 }
             }
@@ -205,26 +214,26 @@ impl<'a> FunctionTranslator<'a> {
             // Expr::GlobalDataAddr(name) => self.translate_global_data_addr(name),
             Expr::Ident(ident) => {
                 // `use_var` is used to read the value of a variable.
-                let variable = self
-                    .variables
-                    .get(&ident.name)
-                    .expect("variable not defined");
+                let variable = self.variables.get(&ident.0).expect("variable not defined");
                 self.builder.use_var(*variable)
             }
 
-            Expr::Let(ident, expr) | Expr::Set(ident, expr) => {
+            Expr::Let(ident, _, expr) | Expr::Set(ident, expr) => {
                 // `def_var` is used to write the value of a variable. Note that variables can have
                 // multiple definitions. Cranelift will convert them into SSA form for itself
                 // automatically.
                 let new_value = self.translate_expr(expr);
-                let variable = self.variables.get(&ident.name).unwrap();
+                let variable = self.variables.get(&ident.0).unwrap();
                 self.builder.def_var(*variable, new_value);
                 new_value
             }
 
-            // Expr::IfElse(condition, then_body, else_body) => {
-            //     self.translate_if_else(*condition, then_body, else_body)
-            // }
+            Expr::If { cond, then_expr, else_expr } => {
+                self.translate_if_else(cond, then_expr, else_expr.as_deref())
+            }
+
+            Expr::Block(exprs) => self.translate_block(&exprs),
+
             // Expr::WhileLoop(condition, loop_body) => {
             //     self.translate_while_loop(*condition, loop_body)
             // }
@@ -232,62 +241,83 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
-    // fn translate_if_else(
-    //     &mut self,
-    //     condition: Expr,
-    //     then_body: Vec<Expr>,
-    //     else_body: Vec<Expr>,
-    // ) -> Value {
-    //     let condition_value = self.translate_expr(condition);
+    fn translate_if_else(
+        &mut self,
+        condition: &Expr,
+        then_expr: &Expr,
+        else_expr: Option<&Expr>,
+    ) -> Value {
+        let condition_value = self.translate_expr(condition);
 
-    //     let then_block = self.builder.create_block();
-    //     let else_block = self.builder.create_block();
-    //     let merge_block = self.builder.create_block();
+        let then_block = self.builder.create_block();
+        let else_block = self.builder.create_block();
+        let merge_block = self.builder.create_block();
 
-    //     // If-else constructs in the toy language have a return value.
-    //     // In traditional SSA form, this would produce a PHI between
-    //     // the then and else bodies. Cranelift uses block parameters,
-    //     // so set up a parameter in the merge block, and we'll pass
-    //     // the return values to it from the branches.
-    //     self.builder.append_block_param(merge_block, self.typ);
+        // If-else constructs in the toy language have a return value.
+        // In traditional SSA form, this would produce a PHI between
+        // the then and else bodies. Cranelift uses block parameters,
+        // so set up a parameter in the merge block, and we'll pass
+        // the return values to it from the branches.
+        // TODO: We just assume that you return an int
+        self.builder.append_block_param(merge_block, ASSUMED_TYPE);
 
-    //     // Test the if condition and conditionally branch.
-    //     self.builder.ins().brz(condition_value, else_block, &[]);
-    //     // Fall through to then block.
-    //     self.builder.ins().jump(then_block, &[]);
+        // Test the if condition and conditionally branch.
+        if else_expr.is_some() {
+            self.builder.ins().brz(condition_value, else_block, &[]);
+        } else {
+            self.builder.ins().brz(condition_value, merge_block, &[]);
+        }
+        // Fall through to then block.
+        self.builder.ins().jump(then_block, &[]);
 
-    //     self.builder.switch_to_block(then_block);
-    //     self.builder.seal_block(then_block);
-    //     let mut then_return = self.builder.ins().iconst(self.typ, 0);
-    //     for expr in then_body {
-    //         then_return = self.translate_expr(expr);
-    //     }
+        self.builder.switch_to_block(then_block);
+        self.builder.seal_block(then_block);
+        let then_return = self.translate_expr(then_expr);
 
-    //     // Jump to the merge block, passing it the block return value.
-    //     self.builder.ins().jump(merge_block, &[then_return]);
+        // Jump to the merge block, passing it the block return value.
+        self.builder.ins().jump(merge_block, &[then_return]);
 
-    //     self.builder.switch_to_block(else_block);
-    //     self.builder.seal_block(else_block);
-    //     let mut else_return = self.builder.ins().iconst(self.typ, 0);
-    //     for expr in else_body {
-    //         else_return = self.translate_expr(expr);
-    //     }
+        if let Some(else_expr) = else_expr {
+            self.builder.switch_to_block(else_block);
+            self.builder.seal_block(else_block);
+            let else_return = self.translate_expr(else_expr);
 
-    //     // Jump to the merge block, passing it the block return value.
-    //     self.builder.ins().jump(merge_block, &[else_return]);
+            // Jump to the merge block, passing it the block return value.
+            self.builder.ins().jump(merge_block, &[else_return]);
+        }
 
-    //     // Switch to the merge block for subsequent statements.
-    //     self.builder.switch_to_block(merge_block);
+        // Switch to the merge block for subsequent statements.
+        self.builder.switch_to_block(merge_block);
 
-    //     // We've now seen all the predecessors of the merge block.
-    //     self.builder.seal_block(merge_block);
+        // We've now seen all the predecessors of the merge block.
+        self.builder.seal_block(merge_block);
 
-    //     // Read the value of the if-else by reading the merge block
-    //     // parameter.
-    //     let phi = self.builder.block_params(merge_block)[0];
+        // Read the value of the if-else by reading the merge block
+        // parameter.
+        let phi = self.builder.block_params(merge_block)[0];
+        phi
+    }
 
-    //     phi
-    // }
+    fn translate_block(&mut self, exprs: &[Expr]) -> Value {
+        // Create a block which will have this value calculated
+        let next_block = self.builder.create_block();
+        self.builder.append_block_param(next_block, ASSUMED_TYPE);
+
+        // Translate all the expressions and keep the last one as the return value
+        let mut rtn = self.builder.ins().iconst(ASSUMED_TYPE, 0);
+        for expr in exprs {
+            rtn = self.translate_expr(expr);
+        }
+
+        // Switch to the next block passing in the return
+        self.builder.ins().jump(next_block, &[rtn]);
+        self.builder.switch_to_block(next_block);
+        self.builder.seal_block(next_block);
+
+        // Return the value of this block
+        let phi = self.builder.block_params(next_block)[0];
+        phi
+    }
 
     // fn translate_while_loop(&mut self, condition: Expr, loop_body: Vec<Expr>) -> Value {
     //     let header_block = self.builder.create_block();
@@ -363,7 +393,6 @@ impl<'a> FunctionTranslator<'a> {
 }
 
 fn declare_variables(
-    typ: types::Type,
     builder: &mut FunctionBuilder,
     exprs: &[Expr],
     _entry_block: Block,
@@ -372,7 +401,7 @@ fn declare_variables(
     let mut index = 0;
 
     for expr in exprs {
-        declare_variables_in_expr(typ, builder, &mut variables, &mut index, expr);
+        declare_variables_in_expr(builder, &mut variables, &mut index, expr);
     }
 
     variables
@@ -380,20 +409,21 @@ fn declare_variables(
 
 /// Recursively descend through the AST, translating all implicit variable declarations.
 fn declare_variables_in_expr(
-    int: types::Type,
     builder: &mut FunctionBuilder,
     variables: &mut HashMap<String, Variable>,
     index: &mut usize,
     expr: &Expr,
 ) {
-    if let Expr::Let(ident, _expr) = expr {
+    if let Expr::Let(ident, typepath, _expr) = expr {
         let var = Variable::new(*index);
-        if !variables.contains_key(&ident.name) {
-            variables.insert(ident.name.to_owned(), var);
-            builder.declare_var(var, int);
+        if !variables.contains_key(&ident.0) {
+            variables.insert(ident.0.to_owned(), var);
+            let typ =
+                resolve_typepath(typepath.as_ref().expect("type inference not supported yet"));
+            builder.declare_var(var, typ);
             *index += 1;
         }
     }
 
-    expr.apply_children(|e| declare_variables_in_expr(int, builder, variables, index, e));
+    expr.apply_children(|e| declare_variables_in_expr(builder, variables, index, e));
 }

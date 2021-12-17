@@ -16,8 +16,7 @@ pub trait Program: salsa::Database {
 
 fn parse(db: &dyn Program) -> Result<Parsed, String> {
     let code = db.source_code();
-    let lexer = Lexer::new(&code);
-    let mut parser = Parser::new(lexer);
+    let mut parser = Parser::new(&code);
     // TODO: Improve error handling
     match parser.items() {
         Ok(items) => Ok(Parsed { items }),
