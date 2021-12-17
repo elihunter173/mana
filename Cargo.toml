@@ -24,9 +24,9 @@ rustyline = "7.1"
 clap = { version = "3.0.0-rc.6", features = ["derive"] }
 
 # Compilation
-cranelift = "0.72.0"
-cranelift-module = "0.72.0"
-cranelift-jit = "0.72.0"
+cranelift = "0.78.0"
+cranelift-module = "0.78.0"
+cranelift-jit = "0.78.0"
 
 [dev-dependencies]
 matches = "0.1"
