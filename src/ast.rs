@@ -74,9 +74,7 @@ pub enum Item {
         return_type: Option<TypePath>,
         body: Vec<Expr>,
     },
-    Import {
-        ty_path: TypePath,
-    },
+    Import(TypePath),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -114,11 +112,7 @@ impl Expr {
             Unary(_, x) | Let(_, x) | Set(_, x) => {
                 f(x);
             }
-            If {
-                cond: _,
-                true_expr,
-                false_expr,
-            } => {
+            If { cond: _, true_expr, false_expr } => {
                 f(true_expr);
                 if let Some(false_expr) = false_expr {
                     f(false_expr);

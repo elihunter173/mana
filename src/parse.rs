@@ -26,8 +26,8 @@ pub struct Parser<'input> {
     lexer: Lexer<'input>,
 }
 
-impl<'a> Parser<'a> {
-    pub fn new(lexer: Lexer<'a>) -> Self {
+impl<'input> Parser<'input> {
+    pub fn new(lexer: Lexer<'input>) -> Self {
         Self { lexer }
     }
 
@@ -36,13 +36,80 @@ impl<'a> Parser<'a> {
     }
 }
 
+// Helpers
+impl<'input> Parser<'input> {
+    fn token(&mut self, kind: TokenKind) -> ParseResult<Token> {
+        let tok = self.lexer.peek().ok_or(ParseError::EndOfStream)?;
+        if tok.kind != kind {
+            return Err(ParseError::UnexpectedToken(tok));
+        }
+        self.lexer.next();
+        Ok(tok)
+    }
+
+    // TODO: Is this useful?
+    fn maybe_token(&mut self, kind: TokenKind) -> Option<Token> {
+        let tok = self.lexer.peek()?;
+        if tok.kind != kind {
+            return None;
+        }
+        self.lexer.next();
+        Some(tok)
+    }
+
+    fn delimited<T>(
+        &mut self,
+        start: TokenKind,
+        mut parser: impl FnMut(&mut Self) -> ParseResult<T>,
+        delimiter: TokenKind,
+        end: TokenKind,
+    ) -> ParseResult<Vec<T>> {
+        self.token(start)?;
+        let mut parsed = Vec::new();
+        let tok = self.lexer.peek().ok_or(ParseError::EndOfStream)?;
+        if tok.kind == end {
+            self.lexer.next();
+        } else {
+            // TODO: Make delimited helper
+            parsed.push(parser(self)?);
+            while self.maybe_token(delimiter).is_some() {
+                // This allows for trailing delimiters
+                // TODO: This is really hard to read
+                // If the token we're peeking at is what we want
+                if self.lexer.peek().filter(|tok| tok.kind == end).is_some() {
+                    break;
+                }
+                parsed.push(parser(self)?);
+            }
+            self.token(end)?;
+        }
+        Ok(parsed)
+    }
+}
+
 impl<'input> Parser<'input> {
     pub fn items(&mut self) -> ParseResult<Vec<Item>> {
-        todo!()
+        // TODO: Figure out a way to re-use delimited
+        let mut items = Vec::new();
+        if !self.finished() {
+            items.push(self.item()?);
+        }
+        while self.maybe_token(TokenKind::Semicolon).is_some() {
+            if self.finished() {
+                break;
+            }
+            items.push(self.item()?);
+        }
+        Ok(items)
     }
 
     pub fn item(&mut self) -> ParseResult<Item> {
-        todo!()
+        let tok = self.lexer.peek().ok_or(ParseError::EndOfStream)?;
+        match tok.kind {
+            TokenKind::Import => self.import(),
+            TokenKind::Fn => self.fn_def(),
+            _ => Err(ParseError::UnexpectedToken(tok)),
+        }
     }
 
     pub fn fn_def(&mut self) -> ParseResult<Item> {
@@ -50,79 +117,101 @@ impl<'input> Parser<'input> {
     }
 
     pub fn import(&mut self) -> ParseResult<Item> {
-        todo!()
+        self.token(TokenKind::Import)?;
+        let type_path = self.type_path()?;
+        Ok(Item::Import(type_path))
     }
 
     pub fn expr(&mut self) -> ParseResult<Expr> {
-        self.expr_at_binding(0)?;
-        todo!("Support expressions other than just arithmetic ones")
+        let tok = self.lexer.peek().ok_or(ParseError::EndOfStream)?;
+        match tok.kind {
+            TokenKind::LCurly => self.block(),
+            TokenKind::If => self.if_chain(),
+            TokenKind::Let => self.let_(),
+            _ => self.expr_at_binding(0),
+        }
     }
 
     pub fn block(&mut self) -> ParseResult<Expr> {
+        Ok(Expr::Block(self.delimited(
+            TokenKind::LCurly,
+            Self::expr,
+            TokenKind::Semicolon,
+            TokenKind::RCurly,
+        )?))
+    }
+
+    pub fn if_chain(&mut self) -> ParseResult<Expr> {
         todo!()
     }
 
-    pub fn if_(&mut self) -> ParseResult<Expr> {
-        todo!()
-    }
-
-    pub fn fn_call(&mut self) -> ParseResult<Expr> {
-        todo!()
+    pub fn fn_args(&mut self) -> ParseResult<Vec<Expr>> {
+        self.delimited(
+            TokenKind::LParen,
+            Self::expr,
+            TokenKind::Comma,
+            TokenKind::RParen,
+        )
     }
 
     pub fn let_(&mut self) -> ParseResult<Expr> {
-        todo!()
+        self.token(TokenKind::Let)?;
+        let ident = self.ident()?;
+        let type_path = if self.maybe_token(TokenKind::Colon).is_some() {
+            Some(self.type_path()?)
+        } else {
+            None
+        };
+        self.token(TokenKind::Equals)?;
+        let expr = self.expr()?;
+
+        // TODO: Use type_path
+        Ok(Expr::Let(ident, Box::new(expr)))
     }
 
-    // TODO: Rename this?
     pub fn set(&mut self) -> ParseResult<Expr> {
-        let ident_tok = self.lexer.peek().ok_or(ParseError::EndOfStream)?;
-        if ident_tok.kind != TokenKind::Ident {
-            return Err(ParseError::UnexpectedToken(ident_tok));
-        }
-        let ident = Ident(self.lexer.source(&ident_tok).to_owned());
+        let ident = self.ident()?;
 
+        // TODO: This is gross
         let assign_op = self.lexer.peek().ok_or(ParseError::EndOfStream)?;
         let rtn = match assign_op.kind {
-            TokenKind::Equals => Ok(Expr::Set(ident, Box::new(self.expr()?))),
-            TokenKind::PlusEq => Ok(Expr::Set(
+            TokenKind::Equals => Expr::Set(ident, Box::new(self.expr()?)),
+            TokenKind::PlusEq => Expr::Set(
                 ident.clone(),
                 Box::new(Expr::Binary(
                     BinOp::Add,
                     Box::new(Expr::Ident(ident)),
                     Box::new(self.expr()?),
                 )),
-            )),
-            TokenKind::MinusEq => Ok(Expr::Set(
+            ),
+            TokenKind::MinusEq => Expr::Set(
                 ident.clone(),
                 Box::new(Expr::Binary(
                     BinOp::Sub,
                     Box::new(Expr::Ident(ident)),
                     Box::new(self.expr()?),
                 )),
-            )),
-            TokenKind::StarEq => Ok(Expr::Set(
+            ),
+            TokenKind::StarEq => Expr::Set(
                 ident.clone(),
                 Box::new(Expr::Binary(
                     BinOp::Mul,
                     Box::new(Expr::Ident(ident)),
                     Box::new(self.expr()?),
                 )),
-            )),
-            TokenKind::SlashEq => Ok(Expr::Set(
+            ),
+            TokenKind::SlashEq => Expr::Set(
                 ident.clone(),
                 Box::new(Expr::Binary(
                     BinOp::Div,
                     Box::new(Expr::Ident(ident)),
                     Box::new(self.expr()?),
                 )),
-            )),
-            _ => Err(ParseError::UnexpectedToken(assign_op)),
+            ),
+            _ => return Err(ParseError::UnexpectedToken(assign_op)),
         };
-        if rtn.is_ok() {
-            self.lexer.next();
-        }
-        rtn
+        self.lexer.next();
+        Ok(rtn)
     }
 
     fn expr_at_binding(&mut self, binding: usize) -> ParseResult<Expr> {
@@ -184,49 +273,42 @@ impl<'input> Parser<'input> {
 
     fn atom(&mut self) -> ParseResult<Expr> {
         match self.lexer.peek() {
-            Some(Token {
-                kind: TokenKind::LParen,
-                ..
-            }) => {
+            Some(Token { kind: TokenKind::LParen, .. }) => {
                 self.lexer.next();
                 let expr = self.expr()?;
-                match self.lexer.next() {
-                    Some(Token {
-                        kind: TokenKind::RParen,
-                        ..
-                    }) => {}
-                    Some(token) => return Err(ParseError::UnexpectedToken(token)),
-                    None => return Err(ParseError::EndOfStream),
-                }
+                self.token(TokenKind::RParen)?;
                 Ok(expr)
             }
-            Some(Token {
-                kind: TokenKind::Ident,
-                ..
-            }) => Ok(Expr::Ident(self.ident()?)),
+            Some(Token { kind: TokenKind::Ident, .. }) => {
+                // Function call or identifier
+                let ident = self.ident()?;
+                let tok = self.lexer.peek().ok_or(ParseError::EndOfStream)?;
+                match tok.kind {
+                    TokenKind::LParen => {
+                        let args = self.fn_args()?;
+                        Ok(Expr::FnCall(ident, args))
+                    }
+                    TokenKind::Equals => {
+                        self.lexer.next();
+                        // TODO: Do I want Set to be an expression?
+                        let expr = self.expr()?;
+                        Ok(Expr::Set(ident, Box::new(expr)))
+                    }
+                    _ => Ok(Expr::Ident(ident)),
+                }
+            }
             _ => Ok(Expr::Literal(self.lit()?)),
         }
     }
 
     pub fn ident(&mut self) -> ParseResult<Ident> {
-        let tok = self.lexer.peek().ok_or(ParseError::EndOfStream)?;
-        let rtn = match tok.kind {
-            TokenKind::Ident => Ok(Ident(self.lexer.source(&tok).to_owned())),
-            _ => Err(ParseError::UnexpectedToken(tok)),
-        };
-        if rtn.is_ok() {
-            self.lexer.next();
-        }
-        rtn
+        let tok = self.token(TokenKind::Ident)?;
+        Ok(Ident(self.lexer.source(&tok).to_owned()))
     }
 
     pub fn type_path(&mut self) -> ParseResult<TypePath> {
         let mut path = vec![self.ident()?];
-        while let Some(Token {
-            kind: TokenKind::Dot,
-            ..
-        }) = self.lexer.peek()
-        {
+        while let Some(Token { kind: TokenKind::Dot, .. }) = self.lexer.peek() {
             self.lexer.next();
             path.push(self.ident()?);
         }
@@ -237,26 +319,24 @@ impl<'input> Parser<'input> {
         let tok = self.lexer.peek().ok_or(ParseError::EndOfStream)?;
         let src = self.lexer.source(&tok);
 
-        let rtn = match tok.kind {
-            TokenKind::Int => Ok(Literal::parse_int(src, 10)),
-            TokenKind::IntHex => Ok(Literal::parse_int(&src[2..], 16)),
-            TokenKind::IntOct => Ok(Literal::parse_int(&src[2..], 8)),
-            TokenKind::IntBin => Ok(Literal::parse_int(&src[2..], 2)),
-            TokenKind::Float => Ok(Literal::parse_float(src)),
+        let literal = match tok.kind {
+            TokenKind::Int => Literal::parse_int(src, 10),
+            TokenKind::IntHex => Literal::parse_int(&src[2..], 16),
+            TokenKind::IntOct => Literal::parse_int(&src[2..], 8),
+            TokenKind::IntBin => Literal::parse_int(&src[2..], 2),
+            TokenKind::Float => Literal::parse_float(src),
             TokenKind::String => {
                 // TODO: Move this to Literal?
                 // Unescape quotes
                 let val = src[1..src.len() - 1].replace("\\\"", "\"");
-                Ok(Literal::String(val))
+                Literal::String(val)
             }
-            TokenKind::True => Ok(Literal::Bool(true)),
-            TokenKind::False => Ok(Literal::Bool(false)),
-            _ => Err(ParseError::UnexpectedToken(tok)),
+            TokenKind::True => Literal::Bool(true),
+            TokenKind::False => Literal::Bool(false),
+            _ => return Err(ParseError::UnexpectedToken(tok)),
         };
-        if rtn.is_ok() {
-            self.lexer.next();
-        }
-        rtn
+        self.lexer.next();
+        Ok(literal)
     }
 }
 
@@ -380,6 +460,26 @@ mod tests {
                 b(Binary(Mul, b(Literal(2.into())), b(Literal(3.into())))),
                 b(Binary(Sub, b(Literal(4.into())), b(Literal(5.into())))),
             )),
+        ));
+        assert_eq!(parser.expr(), want);
+        assert!(parser.finished());
+    }
+
+    #[test]
+    fn fn_calls() {
+        let b = Box::new;
+
+        let mut parser = parser("foo(n, \"bar\") + 1");
+        let want = Ok(Expr::Binary(
+            BinOp::Add,
+            b(Expr::FnCall(
+                Ident("foo".to_owned()),
+                vec![
+                    Expr::Ident(Ident("n".to_owned())),
+                    Expr::Literal("bar".into()),
+                ],
+            )),
+            b(Expr::Literal(1.into())),
         ));
         assert_eq!(parser.expr(), want);
         assert!(parser.finished());

@@ -199,10 +199,7 @@ impl<'input> Lexer<'input> {
         *self.peeked.get_or_insert_with(|| {
             self.inner.next().map(|kind| {
                 let span = self.inner.span();
-                Token {
-                    kind,
-                    span: (span.start, span.end),
-                }
+                Token { kind, span: (span.start, span.end) }
             })
         })
     }
@@ -212,10 +209,7 @@ impl<'input> Lexer<'input> {
             Some(v) => v,
             None => self.inner.next().map(|kind| {
                 let span = self.inner.span();
-                Token {
-                    kind,
-                    span: (span.start, span.end),
-                }
+                Token { kind, span: (span.start, span.end) }
             }),
         }
     }
@@ -228,10 +222,7 @@ impl<'input> Iterator for Lexer<'input> {
         let current = self.next.take().or_else(|| self.raw_next_token());
 
         let rtn = match current {
-            Some(Token {
-                kind: TokenKind::Newline,
-                span,
-            }) => {
+            Some(Token { kind: TokenKind::Newline, span }) => {
                 let next = self.raw_next_token();
                 if should_skip_semicolon(self.previous.map(|t| t.kind), next.map(|t| t.kind)) {
                     // We're skipping this one so we don't need to update the return
@@ -240,10 +231,7 @@ impl<'input> Iterator for Lexer<'input> {
                     // Stash away next to return later
                     self.next = next;
                     // TODO: Maybe I should just have a semicolon?
-                    Some(Token {
-                        kind: TokenKind::Semicolon,
-                        span,
-                    })
+                    Some(Token { kind: TokenKind::Semicolon, span })
                 }
             }
 
@@ -293,10 +281,7 @@ mod test {
     fn assert_lex(input: &str, expected: &[(usize, TokenKind, usize)]) {
         let expected: Vec<_> = expected
             .iter()
-            .map(|&(start, kind, end)| Token {
-                kind,
-                span: (start, end),
-            })
+            .map(|&(start, kind, end)| Token { kind, span: (start, end) })
             .collect();
         let actual: Vec<_> = Lexer::new(input).collect();
         assert_eq!(expected.as_slice(), actual.as_slice());

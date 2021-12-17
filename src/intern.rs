@@ -1,4 +1,4 @@
-use std::collections::{HashSet};
+use std::collections::HashSet;
 
 use crate::ty::TyS;
 
@@ -9,9 +9,7 @@ pub struct TyInterner {
 
 impl TyInterner {
     pub fn new() -> Self {
-        Self {
-            data: Default::default(),
-        }
+        Self { data: Default::default() }
     }
 
     pub fn intern(&mut self, tys: TyS) -> &TyS {

@@ -99,26 +99,21 @@ fn repl() {
     if rl.load_history("history.txt").is_err() {
         println!("No previous history.");
     }
-    let mut db = DatabaseStruct::default();
     loop {
         let readline = rl.readline(">> ");
         match readline {
             Ok(line) => {
                 rl.add_history_entry(line.as_str());
-                db.set_source_code(line);
-                match db.parse() {
-                    Ok(parsed) => {
-                        for x in parsed.items {
-                            println!("{:?}", x);
+                let mut parser = crate::parse::Parser::new(Lexer::new(&line));
+                match parser.expr() {
+                    Ok(expr) => {
+                        if parser.finished() {
+                            println!("{:?}", expr);
+                        } else {
+                            println!("Error: Did not fully consume output");
                         }
-                        // for stmt in stmts {
-                        //     let mut comp = Compiler::new();
-                        //     stmt.compile(&mut comp);
-                        //     let mut interpreter = Interpreter::new(&comp.code, comp.immediates);
-                        //     interpreter.run();
-                        // }
-                    }
-                    Err(err) => println!("Error: {}", err),
+                    },
+                    Err(e) => println!("Error: {}", e),
                 }
             }
             Err(ReadlineError::Interrupted) => {
@@ -136,3 +131,47 @@ fn repl() {
     }
     rl.save_history("history.txt").unwrap();
 }
+
+// fn repl() {
+//     // `()` can be used when no completer is required
+//     let mut rl = Editor::<()>::new();
+//     if rl.load_history("history.txt").is_err() {
+//         println!("No previous history.");
+//     }
+//     let mut db = DatabaseStruct::default();
+//     loop {
+//         let readline = rl.readline(">> ");
+//         match readline {
+//             Ok(line) => {
+//                 rl.add_history_entry(line.as_str());
+//                 db.set_source_code(line);
+//                 match db.parse() {
+//                     Ok(parsed) => {
+//                         for x in parsed.items {
+//                             println!("{:?}", x);
+//                         }
+//                         // for stmt in stmts {
+//                         //     let mut comp = Compiler::new();
+//                         //     stmt.compile(&mut comp);
+//                         //     let mut interpreter = Interpreter::new(&comp.code, comp.immediates);
+//                         //     interpreter.run();
+//                         // }
+//                     }
+//                     Err(err) => println!("Error: {}", err),
+//                 }
+//             }
+//             Err(ReadlineError::Interrupted) => {
+//                 println!("CTRL-C");
+//                 break;
+//             }
+//             Err(ReadlineError::Eof) => {
+//                 break;
+//             }
+//             Err(err) => {
+//                 println!("Error: {:?}", err);
+//                 break;
+//             }
+//         }
+//     }
+//     rl.save_history("history.txt").unwrap();
+// }

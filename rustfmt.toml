@@ -1,0 +1,2 @@
+# Double the default width for inline structs because we use a lot of them
+struct_lit_width = 36
