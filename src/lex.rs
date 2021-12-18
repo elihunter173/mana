@@ -1,7 +1,6 @@
-use std::{fmt, iter};
+use std::fmt;
 
 use logos::{Lexer as LogosLexer, Logos};
-use std::ops::Range;
 
 pub type Loc = usize;
 

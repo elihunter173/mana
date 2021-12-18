@@ -1,7 +1,11 @@
+// Used for ty.rs
 #![feature(hash_set_entry)]
 // I'm working on things and those errors are noisy
 #![allow(dead_code)]
-#![allow(unused_imports)]
+
+// matches!() sometimes doesn't work with rust-analyzer, and I think the code is similarly
+// readable, so I just ignore matches!()
+#![allow(clippy::match_like_matches_macro)]
 
 mod ast;
 mod diagnostic;
@@ -67,7 +71,7 @@ fn parse_and_print(path: &str, mut f: File) {
             }
         }
         Err(err) => crate::diagnostic::emit(
-            &codespan_reporting::files::SimpleFile::new(&path, &code),
+            &codespan_reporting::files::SimpleFile::new(path, &code),
             &crate::diagnostic::diagnostic_from_parse_error(&err),
         ),
     };

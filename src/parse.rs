@@ -1,5 +1,3 @@
-use std::fmt::Display;
-
 use crate::{
     ast::*,
     lex::{Lexer, Token, TokenKind},
@@ -38,7 +36,7 @@ impl<'input> Parser<'input> {
 // Helpers
 impl<'input> Parser<'input> {
     fn try_peek(&mut self) -> ParseResult<Token> {
-        self.lexer.peek().ok_or_else(|| ParseError {
+        self.lexer.peek().ok_or(ParseError {
             kind: ParseErrorKind::UnexpectedEOF,
             span: (self.code.len() - 1, self.code.len() - 1),
         })
@@ -330,14 +328,11 @@ impl<'input> Parser<'input> {
         }
 
         let mut expr = self.expr_at_binding(binding + 1)?;
-        loop {
+        while let Some(token) = self.lexer.peek() {
             // TODO: I want operations at the same level to be ambiguous if they're not defined
             // together
-            let op = if let Some(token) = self.lexer.peek() {
-                match OPERATIONS_BY_BINDING[binding](token) {
-                    Some(op) => op,
-                    None => break,
-                }
+            let op = if let Some(op) = OPERATIONS_BY_BINDING[binding](token) {
+                op
             } else {
                 break;
             };

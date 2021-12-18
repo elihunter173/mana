@@ -1,6 +1,6 @@
 use codespan_reporting::{
     diagnostic::{Diagnostic, Label, Severity},
-    files::{Files, SimpleFile},
+    files::SimpleFile,
     term::{
         self,
         termcolor::{ColorChoice, StandardStream},
@@ -11,7 +11,7 @@ use crate::parse::{ParseError, ParseErrorKind};
 
 type DiagFile<'a> = SimpleFile<&'a str, &'a str>;
 
-pub fn diagnostic_from_parse_error<'a>(err: &ParseError) -> Diagnostic<()> {
+pub fn diagnostic_from_parse_error(err: &ParseError) -> Diagnostic<()> {
     match err.kind {
         ParseErrorKind::UnexpectedEOF => Diagnostic::new(Severity::Error)
             .with_message("unexpected end of file")
@@ -23,10 +23,12 @@ pub fn diagnostic_from_parse_error<'a>(err: &ParseError) -> Diagnostic<()> {
     }
 }
 
-pub fn emit<'a>(file: &DiagFile<'a>, diag: &Diagnostic<()>) {
+pub fn emit(file: &DiagFile<'_>, diag: &Diagnostic<()>) {
     let writer = StandardStream::stderr(ColorChoice::Always);
-    let mut config = term::Config::default();
-    config.chars = term::Chars::ascii();
+    let config = term::Config {
+        chars: term::Chars::ascii(),
+        ..Default::default()
+    };
 
-    term::emit(&mut writer.lock(), &config, file, &diag).expect("emit diagnostic");
+    term::emit(&mut writer.lock(), &config, file, diag).expect("emit diagnostic");
 }

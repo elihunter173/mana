@@ -71,7 +71,7 @@ impl JIT {
         // of `declare_function` that automatically declares the function?
         let id = self
             .module
-            .declare_function(&name, Linkage::Export, &self.ctx.func.signature)
+            .declare_function(name, Linkage::Export, &self.ctx.func.signature)
             .unwrap();
 
         // Define the function to jit. This finishes compilation, although there may be outstanding
@@ -133,7 +133,7 @@ impl JIT {
         // Our toy language currently only supports one return value, though Cranelift is designed
         // to support more.
         if let Some(return_typepath) = &func.return_typepath {
-            let typ = resolve_typepath(&return_typepath);
+            let typ = resolve_typepath(return_typepath);
             self.ctx.func.signature.returns.push(AbiParam::new(typ));
         }
 
@@ -238,7 +238,7 @@ impl<'a> FunctionTranslator<'a> {
                 self.translate_if_else(cond.as_ref(), then_expr.as_ref(), else_expr.as_deref())
             }
 
-            ExprKind::Block(exprs) => self.translate_block(&exprs),
+            ExprKind::Block(exprs) => self.translate_block(exprs),
 
             // ExprKind::WhileLoop(condition, loop_body) => {
             //     self.translate_while_loop(*condition, loop_body)

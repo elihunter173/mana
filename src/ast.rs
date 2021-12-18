@@ -42,7 +42,7 @@ impl LiteralKind {
 
     pub fn parse_float(input: &str) -> Self {
         // TODO: Use better parsing logic
-        let input = input.replace("_", "");
+        let input = input.replace('_', "");
         Self::Float(f64::from_str(&input).unwrap())
     }
 }
