@@ -1,7 +1,6 @@
 use std::fmt::Display;
 
 use crate::{
-    // TODO: Merge ast with parse?
     ast::*,
     lex::{Lexer, Token, TokenKind},
 };
@@ -284,7 +283,7 @@ impl<'input> Parser<'input> {
                 _ => None,
             },
             |token| match token.kind {
-                TokenKind::Equals => Some(BinOp::Eq),
+                TokenKind::DoubleEquals => Some(BinOp::Eq),
                 TokenKind::BangEquals => Some(BinOp::Neq),
                 TokenKind::Lt => Some(BinOp::Lt),
                 TokenKind::Leq => Some(BinOp::Leq),

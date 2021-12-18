@@ -14,12 +14,12 @@ type DiagFile<'a> = SimpleFile<&'a str, &'a str>;
 pub fn diagnostic_from_parse_error<'a>(err: &ParseError) -> Diagnostic<()> {
     match err.kind {
         ParseErrorKind::EndOfStream => {
-            Diagnostic::new(Severity::Error).with_message("unexpected `<eof>`")
+            Diagnostic::new(Severity::Error).with_message("unexpected end of file")
         }
         ParseErrorKind::UnexpectedToken(tok) => Diagnostic::new(Severity::Error)
             .with_message("unexpected token")
             .with_labels(vec![Label::primary((), err.span.0..err.span.1)
-                .with_message(format!("unexpected token {}", tok.kind))]),
+                .with_message(format!("unexpected token `{}`", tok.kind))]),
     }
 }
 
