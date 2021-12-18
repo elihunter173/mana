@@ -154,6 +154,82 @@ pub enum TokenKind {
     Error,
 }
 
+impl fmt::Display for TokenKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            TokenKind::Comma => "`,`",
+            TokenKind::Colon => "`:`",
+            TokenKind::Semicolon => "`;`",
+            TokenKind::Newline => "\\n",
+            TokenKind::SingleArrow => "`->`",
+            TokenKind::At => "`@`",
+            TokenKind::Backslash => "`\\`",
+            TokenKind::LParen => "`(`",
+            TokenKind::RParen => "`)`",
+            TokenKind::LCurly => "`{`",
+            TokenKind::RCurly => "`}`",
+            TokenKind::LSquare => "`[`",
+            TokenKind::RSquare => "`]`",
+
+            TokenKind::Equals => "`=`",
+            TokenKind::Dot => "`.`",
+            TokenKind::DotDot => "`..`",
+            TokenKind::DotDotEq => "`..=`",
+            TokenKind::Plus => "`+`",
+            TokenKind::PlusEq => "`+=`",
+            TokenKind::Minus => "`-`",
+            TokenKind::MinusEq => "`-=`",
+            TokenKind::Star => "`*`",
+            TokenKind::StarEq => "`*=`",
+            TokenKind::Slash => "`/`",
+            TokenKind::SlashEq => "`/=`",
+
+            TokenKind::Fn => "`fn`",
+            TokenKind::Struct => "`struct`",
+            TokenKind::Enum => "`enum`",
+            TokenKind::Trait => "`trait`",
+            TokenKind::Type => "`type`",
+            TokenKind::Impl => "`impl`",
+            TokenKind::Import => "`import`",
+            TokenKind::Pub => "`pub`",
+            TokenKind::Let => "`let`",
+            TokenKind::If => "`if`",
+            TokenKind::Else => "`else`",
+            TokenKind::For => "`for`",
+            TokenKind::While => "`while`",
+            TokenKind::Loop => "`loop`",
+            TokenKind::And => "`and`",
+            TokenKind::Or => "`or`",
+            TokenKind::Not => "`not`",
+
+            TokenKind::DoubleEquals => "`==`",
+            TokenKind::BangEquals => "`!=`",
+            TokenKind::Gt => "`>`",
+            TokenKind::Geq => "`>=`",
+            TokenKind::Lt => "`<`",
+            TokenKind::Leq => "`<=`",
+
+            TokenKind::True => "`true`",
+            TokenKind::False => "`false`",
+
+            // TODO: The String is malformatted
+            TokenKind::Ident => "identifier",
+            TokenKind::ClosureArg => "closure parameter",
+            TokenKind::String => "string",
+            TokenKind::Int
+            | TokenKind::IntHex
+            | TokenKind::IntOct
+            | TokenKind::IntBin
+            | TokenKind::Float => "number",
+
+            TokenKind::Comment => "comment",
+
+            TokenKind::Shebang => "shebang",
+            TokenKind::Error => "error",
+        })
+    }
+}
+
 // TODO: Associate lifetime of source code I think
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Token {

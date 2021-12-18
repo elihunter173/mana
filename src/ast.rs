@@ -1,11 +1,13 @@
 use std::str::FromStr;
 
+pub type Span = (usize, usize);
+
 // TODO: I think Literal should probably just be the string?
 #[derive(Clone, Debug)]
 pub enum Literal {
     Bool(bool),
     // TODO: This should be better
-    Int(u64),
+    Int(isize),
     Float(f64),
     String(String),
 }
@@ -36,8 +38,8 @@ impl Literal {
                 b'_' => continue,
                 _ => panic!("unexpected digit {:?}", b),
             };
-            num *= radix as u64;
-            num += d as u64;
+            num *= radix as isize;
+            num += d as isize;
         }
 
         Self::Int(num)

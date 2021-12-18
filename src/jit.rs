@@ -192,7 +192,9 @@ impl<'a> FunctionTranslator<'a> {
     fn translate_expr(&mut self, expr: &Expr) -> Value {
         match expr {
             Expr::Literal(Literal::Float(imm)) => self.builder.ins().f64const(*imm),
-            Expr::Literal(Literal::Int(imm)) => self.builder.ins().iconst(ASSUMED_TYPE, *imm as i64),
+            Expr::Literal(Literal::Int(imm)) => {
+                self.builder.ins().iconst(ASSUMED_TYPE, *imm as i64)
+            }
 
             Expr::Binary(op, lhs, rhs) => {
                 let lhs = self.translate_expr(lhs);

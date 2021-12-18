@@ -8,13 +8,14 @@ edition = "2021"
 # Lazy error handling
 anyhow = "1.0"
 
+# Error reporting
+codespan-reporting = "0.11.1"
+
 # Query-based parser
 salsa = "0.16"
 
 # Lexer
 logos = "0.12"
-
-# TODO: Use codespan-reporting for error messages
 
 # Repl
 rustyline = "7.1"

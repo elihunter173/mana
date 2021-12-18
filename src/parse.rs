@@ -6,29 +6,29 @@ use crate::{
     lex::{Lexer, Token, TokenKind},
 };
 
-// TODO: Figure out good error reporting
-#[derive(Debug, Eq, PartialEq)]
-pub enum ParseError {
-    EndOfStream,
-    UnexpectedToken(Token),
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub struct ParseError {
+    pub kind: ParseErrorKind,
+    pub span: (usize, usize),
 }
 
-impl Display for ParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // TODO: Do something better
-        write!(f, "{:?}", self)
-    }
+// TODO: Figure out good error reporting
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub enum ParseErrorKind {
+    EndOfStream,
+    UnexpectedToken(Token),
 }
 
 type ParseResult<T> = Result<T, ParseError>;
 
 pub struct Parser<'input> {
+    code: &'input str,
     lexer: Lexer<'input>,
 }
 
 impl<'input> Parser<'input> {
     pub fn new(code: &'input str) -> Self {
-        Self { lexer: Lexer::new(code) }
+        Self { code, lexer: Lexer::new(code) }
     }
 
     pub fn finished(&mut self) -> bool {
@@ -38,10 +38,20 @@ impl<'input> Parser<'input> {
 
 // Helpers
 impl<'input> Parser<'input> {
+    fn try_peek(&mut self) -> ParseResult<Token> {
+        self.lexer.peek().ok_or_else(|| ParseError {
+            kind: ParseErrorKind::EndOfStream,
+            span: (self.code.len() - 1, self.code.len()),
+        })
+    }
+
     fn token(&mut self, kind: TokenKind) -> ParseResult<Token> {
-        let tok = self.lexer.peek().ok_or(ParseError::EndOfStream)?;
+        let tok = self.try_peek()?;
         if tok.kind != kind {
-            return Err(ParseError::UnexpectedToken(tok));
+            return Err(ParseError {
+                kind: ParseErrorKind::UnexpectedToken(tok),
+                span: tok.span,
+            });
         }
         self.lexer.next();
         Ok(tok)
@@ -66,7 +76,7 @@ impl<'input> Parser<'input> {
     ) -> ParseResult<Vec<T>> {
         self.token(start)?;
         let mut parsed = Vec::new();
-        let tok = self.lexer.peek().ok_or(ParseError::EndOfStream)?;
+        let tok = self.try_peek()?;
         if tok.kind == end {
             self.lexer.next();
         } else {
@@ -104,11 +114,14 @@ impl<'input> Parser<'input> {
     }
 
     pub fn item(&mut self) -> ParseResult<Item> {
-        let tok = self.lexer.peek().ok_or(ParseError::EndOfStream)?;
+        let tok = self.try_peek()?;
         match tok.kind {
             TokenKind::Import => self.import(),
             TokenKind::Fn => Ok(Item::FnDef(self.fn_def()?)),
-            _ => Err(ParseError::UnexpectedToken(tok)),
+            _ => Err(ParseError {
+                kind: ParseErrorKind::UnexpectedToken(tok),
+                span: tok.span,
+            }),
         }
     }
 
@@ -147,7 +160,7 @@ impl<'input> Parser<'input> {
     }
 
     pub fn expr(&mut self) -> ParseResult<Expr> {
-        let tok = self.lexer.peek().ok_or(ParseError::EndOfStream)?;
+        let tok = self.try_peek()?;
         match tok.kind {
             TokenKind::LCurly => Ok(Expr::Block(self.block()?)),
             TokenKind::If => self.if_chain(),
@@ -170,7 +183,7 @@ impl<'input> Parser<'input> {
         let cond = self.expr()?;
         let true_block = self.block()?;
         let false_expr = if self.try_token(TokenKind::Else).is_some() {
-            let tok = self.lexer.peek().ok_or(ParseError::EndOfStream)?;
+            let tok = self.try_peek()?;
             if tok.kind == TokenKind::If {
                 Some(self.if_chain()?)
             } else {
@@ -213,7 +226,7 @@ impl<'input> Parser<'input> {
         let ident = self.ident()?;
 
         // TODO: This is gross
-        let assign_op = self.lexer.peek().ok_or(ParseError::EndOfStream)?;
+        let assign_op = self.try_peek()?;
         let rtn = match assign_op.kind {
             TokenKind::Equals => Expr::Set(ident, Box::new(self.expr()?)),
             TokenKind::PlusEq => Expr::Set(
@@ -248,7 +261,12 @@ impl<'input> Parser<'input> {
                     Box::new(self.expr()?),
                 )),
             ),
-            _ => return Err(ParseError::UnexpectedToken(assign_op)),
+            _ => {
+                return Err(ParseError {
+                    kind: ParseErrorKind::UnexpectedToken(assign_op),
+                    span: (self.code.len() - 1, self.code.len()),
+                })
+            }
         };
         self.lexer.next();
         Ok(rtn)
@@ -322,7 +340,7 @@ impl<'input> Parser<'input> {
             Some(Token { kind: TokenKind::Ident, .. }) => {
                 // Function call or identifier
                 let ident = self.ident()?;
-                let tok = self.lexer.peek().ok_or(ParseError::EndOfStream)?;
+                let tok = self.try_peek()?;
                 match tok.kind {
                     TokenKind::LParen => {
                         let args = self.fn_args()?;
@@ -356,7 +374,7 @@ impl<'input> Parser<'input> {
     }
 
     pub fn lit(&mut self) -> ParseResult<Literal> {
-        let tok = self.lexer.peek().ok_or(ParseError::EndOfStream)?;
+        let tok = self.try_peek()?;
         let src = self.lexer.source(&tok);
 
         let literal = match tok.kind {
@@ -373,7 +391,12 @@ impl<'input> Parser<'input> {
             }
             TokenKind::True => Literal::Bool(true),
             TokenKind::False => Literal::Bool(false),
-            _ => return Err(ParseError::UnexpectedToken(tok)),
+            _ => {
+                return Err(ParseError {
+                    kind: ParseErrorKind::UnexpectedToken(tok),
+                    span: tok.span,
+                });
+            }
         };
         self.lexer.next();
         Ok(literal)
@@ -533,12 +556,12 @@ fn the_answer(): UInt {
     42
 }",
         );
-        let want = Ok(Item::FnDef {
+        let want = Ok(Item::FnDef(FnDef {
             name: Ident("the_answer".to_owned()),
-            args: vec![],
-            return_type: Some(TypePath { path: vec![Ident("UInt".to_owned())] }),
+            params: vec![],
+            return_typepath: Some(TypePath { path: vec![Ident("UInt".to_owned())] }),
             body: vec![Expr::Literal(42.into())],
-        });
+        }));
         assert_eq!(parser.item(), want);
         assert!(parser.finished());
     }

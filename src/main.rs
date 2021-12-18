@@ -4,6 +4,7 @@
 #![allow(unused_imports)]
 
 mod ast;
+mod diagnostic;
 mod intern;
 mod jit;
 mod lex;
@@ -45,8 +46,8 @@ fn main() {
             lex(file);
         }
         Some(ManaCommand::Parse { path }) => {
-            let file = File::open(path).unwrap();
-            parse_and_print(file);
+            let file = File::open(&path).unwrap();
+            parse_and_print(&path, file);
         }
         Some(ManaCommand::Run { path }) => {
             let file = File::open(path).unwrap();
@@ -56,19 +57,22 @@ fn main() {
     }
 }
 
-fn parse_and_print(mut f: File) {
+fn parse_and_print(path: &str, mut f: File) {
     let mut program = String::new();
     f.read_to_string(&mut program).unwrap();
 
     let mut db = DatabaseStruct::default();
-    db.set_source_code(program);
+    db.set_source_code(program.clone());
     match db.parse() {
         Ok(parsed) => {
             for x in parsed.items {
                 println!("{:?}", x);
             }
         }
-        Err(err) => println!("Error: {}", err),
+        Err(err) => crate::diagnostic::emit(
+            &codespan_reporting::files::SimpleFile::new(&path, &program),
+            &crate::diagnostic::diagnostic_from_parse_error(&err),
+        ),
     };
 }
 
@@ -99,11 +103,14 @@ fn repl() {
     if rl.load_history("history.txt").is_err() {
         println!("No previous history.");
     }
-    loop {
+    for linenum in 1.. {
         let readline = rl.readline(">> ");
         match readline {
             Ok(line) => {
                 rl.add_history_entry(line.as_str());
+                // TODO: Expand line
+                let filename = format!("line {}", linenum);
+
                 let mut parser = crate::parse::Parser::new(&line);
                 match parser.expr() {
                     Ok(expr) => {
@@ -112,8 +119,12 @@ fn repl() {
                         } else {
                             println!("Error: Did not fully consume output");
                         }
-                    },
-                    Err(e) => println!("Error: {}", e),
+                    }
+                    // TODO: Do diagnostic
+                    Err(e) => crate::diagnostic::emit(
+                        &codespan_reporting::files::SimpleFile::new(&filename, &line),
+                        &crate::diagnostic::diagnostic_from_parse_error(&e),
+                    ),
                 }
             }
             Err(ReadlineError::Interrupted) => {
@@ -131,47 +142,3 @@ fn repl() {
     }
     rl.save_history("history.txt").unwrap();
 }
-
-// fn repl() {
-//     // `()` can be used when no completer is required
-//     let mut rl = Editor::<()>::new();
-//     if rl.load_history("history.txt").is_err() {
-//         println!("No previous history.");
-//     }
-//     let mut db = DatabaseStruct::default();
-//     loop {
-//         let readline = rl.readline(">> ");
-//         match readline {
-//             Ok(line) => {
-//                 rl.add_history_entry(line.as_str());
-//                 db.set_source_code(line);
-//                 match db.parse() {
-//                     Ok(parsed) => {
-//                         for x in parsed.items {
-//                             println!("{:?}", x);
-//                         }
-//                         // for stmt in stmts {
-//                         //     let mut comp = Compiler::new();
-//                         //     stmt.compile(&mut comp);
-//                         //     let mut interpreter = Interpreter::new(&comp.code, comp.immediates);
-//                         //     interpreter.run();
-//                         // }
-//                     }
-//                     Err(err) => println!("Error: {}", err),
-//                 }
-//             }
-//             Err(ReadlineError::Interrupted) => {
-//                 println!("CTRL-C");
-//                 break;
-//             }
-//             Err(ReadlineError::Eof) => {
-//                 break;
-//             }
-//             Err(err) => {
-//                 println!("Error: {:?}", err);
-//                 break;
-//             }
-//         }
-//     }
-//     rl.save_history("history.txt").unwrap();
-// }

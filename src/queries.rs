@@ -1,4 +1,8 @@
-use crate::{ast::Item, lex::Lexer, parse::Parser};
+use crate::{
+    ast::Item,
+    lex::Lexer,
+    parse::{ParseError, Parser},
+};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Parsed {
@@ -7,20 +11,24 @@ pub struct Parsed {
 
 #[salsa::query_group(ParserGroup)]
 pub trait Program: salsa::Database {
+    /// The name of the source code
+    #[salsa::input]
+    fn filename(&self) -> String;
+
     /// The source code to parse
     #[salsa::input]
     fn source_code(&self) -> String;
 
-    fn parse(&self) -> Result<Parsed, String>;
+    fn parse(&self) -> Result<Parsed, ParseError>;
 }
 
-fn parse(db: &dyn Program) -> Result<Parsed, String> {
+fn parse(db: &dyn Program) -> Result<Parsed, ParseError> {
     let code = db.source_code();
     let mut parser = Parser::new(&code);
     // TODO: Improve error handling
     match parser.items() {
         Ok(items) => Ok(Parsed { items }),
-        Err(err) => Err(err.to_string()),
+        Err(err) => Err(err),
     }
 }
 
