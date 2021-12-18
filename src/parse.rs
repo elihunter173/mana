@@ -72,12 +72,13 @@ impl<'input> Parser<'input> {
         mut parser: impl FnMut(&mut Self) -> ParseResult<T>,
         delimiter: TokenKind,
         end: TokenKind,
-    ) -> ParseResult<Vec<T>> {
-        self.token(start)?;
+    ) -> ParseResult<(Vec<T>, Span)> {
+        let start_tok = self.token(start)?;
         let mut parsed = Vec::new();
         let tok = self.try_peek()?;
-        if tok.kind == end {
+        let end_tok = if tok.kind == end {
             self.lexer.next();
+            tok
         } else {
             // TODO: Make delimited helper
             parsed.push(parser(self)?);
@@ -90,9 +91,9 @@ impl<'input> Parser<'input> {
                 }
                 parsed.push(parser(self)?);
             }
-            self.token(end)?;
-        }
-        Ok(parsed)
+            self.token(end)?
+        };
+        Ok((parsed, (start_tok.span.0, end_tok.span.1)))
     }
 }
 
@@ -127,7 +128,7 @@ impl<'input> Parser<'input> {
     pub fn fn_def(&mut self) -> ParseResult<FnDef> {
         self.token(TokenKind::Fn)?;
         let name = self.ident()?;
-        let args = self.delimited(
+        let (args, _span) = self.delimited(
             TokenKind::LParen,
             |parser| {
                 let ident = parser.ident()?;
@@ -143,7 +144,7 @@ impl<'input> Parser<'input> {
         } else {
             None
         };
-        let body = self.block()?;
+        let (body, _span) = self.block()?;
         Ok(FnDef {
             name,
             params: args,
@@ -159,16 +160,18 @@ impl<'input> Parser<'input> {
     }
 
     pub fn expr(&mut self) -> ParseResult<Expr> {
-        let tok = self.try_peek()?;
-        match tok.kind {
-            TokenKind::LCurly => Ok(Expr::Block(self.block()?)),
+        match self.try_peek()?.kind {
+            TokenKind::LCurly => {
+                let (block, span) = self.block()?;
+                Ok(Expr { kind: ExprKind::Block(block), span })
+            }
             TokenKind::If => self.if_chain(),
             TokenKind::Let => self.let_(),
             _ => self.expr_at_binding(0),
         }
     }
 
-    pub fn block(&mut self) -> ParseResult<Vec<Expr>> {
+    pub fn block(&mut self) -> ParseResult<(Vec<Expr>, Span)> {
         self.delimited(
             TokenKind::LCurly,
             Self::expr,
@@ -178,27 +181,46 @@ impl<'input> Parser<'input> {
     }
 
     pub fn if_chain(&mut self) -> ParseResult<Expr> {
-        self.token(TokenKind::If)?;
+        let if_ = self.token(TokenKind::If)?;
         let cond = self.expr()?;
-        let true_block = self.block()?;
+        let (true_block, true_block_span) = self.block()?;
+
         let false_expr = if self.maybe_token(TokenKind::Else).is_some() {
             let tok = self.try_peek()?;
             if tok.kind == TokenKind::If {
                 Some(self.if_chain()?)
             } else {
-                Some(Expr::Block(self.block()?))
+                let (false_block, false_block_span) = self.block()?;
+                Some(Expr {
+                    kind: ExprKind::Block(false_block),
+                    span: false_block_span,
+                })
             }
         } else {
             None
         };
-        Ok(Expr::If {
-            cond: Box::new(cond),
-            then_expr: Box::new(Expr::Block(true_block)),
-            else_expr: false_expr.map(Box::new),
+
+        let span = (
+            if_.span.0,
+            false_expr
+                .as_ref()
+                .map(|f| f.span.1)
+                .unwrap_or(true_block_span.1),
+        );
+        Ok(Expr {
+            kind: ExprKind::If {
+                cond: Box::new(cond),
+                then_expr: Box::new(Expr {
+                    kind: ExprKind::Block(true_block),
+                    span: true_block_span,
+                }),
+                else_expr: false_expr.map(Box::new),
+            },
+            span,
         })
     }
 
-    pub fn fn_args(&mut self) -> ParseResult<Vec<Expr>> {
+    pub fn fn_args(&mut self) -> ParseResult<(Vec<Expr>, Span)> {
         self.delimited(
             TokenKind::LParen,
             Self::expr,
@@ -208,7 +230,7 @@ impl<'input> Parser<'input> {
     }
 
     pub fn let_(&mut self) -> ParseResult<Expr> {
-        self.token(TokenKind::Let)?;
+        let let_ = self.token(TokenKind::Let)?;
         let ident = self.ident()?;
         let typepath = if self.maybe_token(TokenKind::Colon).is_some() {
             Some(self.typepath()?)
@@ -218,7 +240,11 @@ impl<'input> Parser<'input> {
         self.token(TokenKind::Equals)?;
         let expr = self.expr()?;
 
-        Ok(Expr::Let(ident, typepath, Box::new(expr)))
+        let span = (let_.span.0, expr.span.1);
+        Ok(Expr {
+            kind: ExprKind::Let(ident, typepath, Box::new(expr)),
+            span,
+        })
     }
 
     pub fn set(&mut self) -> ParseResult<Expr> {
@@ -226,40 +252,12 @@ impl<'input> Parser<'input> {
 
         // TODO: This is gross
         let assign_op = self.try_peek()?;
-        let rtn = match assign_op.kind {
-            TokenKind::Equals => Expr::Set(ident, Box::new(self.expr()?)),
-            TokenKind::PlusEq => Expr::Set(
-                ident.clone(),
-                Box::new(Expr::Binary(
-                    BinOp::Add,
-                    Box::new(Expr::Ident(ident)),
-                    Box::new(self.expr()?),
-                )),
-            ),
-            TokenKind::MinusEq => Expr::Set(
-                ident.clone(),
-                Box::new(Expr::Binary(
-                    BinOp::Sub,
-                    Box::new(Expr::Ident(ident)),
-                    Box::new(self.expr()?),
-                )),
-            ),
-            TokenKind::StarEq => Expr::Set(
-                ident.clone(),
-                Box::new(Expr::Binary(
-                    BinOp::Mul,
-                    Box::new(Expr::Ident(ident)),
-                    Box::new(self.expr()?),
-                )),
-            ),
-            TokenKind::SlashEq => Expr::Set(
-                ident.clone(),
-                Box::new(Expr::Binary(
-                    BinOp::Div,
-                    Box::new(Expr::Ident(ident)),
-                    Box::new(self.expr()?),
-                )),
-            ),
+        let op = match assign_op.kind {
+            TokenKind::Equals => None,
+            TokenKind::PlusEq => Some(BinOp::Add),
+            TokenKind::MinusEq => Some(BinOp::Sub),
+            TokenKind::StarEq => Some(BinOp::Mul),
+            TokenKind::SlashEq => Some(BinOp::Div),
             _ => {
                 return Err(ParseError {
                     kind: ParseErrorKind::UnexpectedToken(assign_op),
@@ -268,7 +266,30 @@ impl<'input> Parser<'input> {
             }
         };
         self.lexer.next();
-        Ok(rtn)
+        let expr = self.expr()?;
+
+        let assigned_expr = if let Some(op) = op {
+            let span = expr.span;
+            Expr {
+                kind: ExprKind::Binary(
+                    op,
+                    Box::new(Expr {
+                        kind: ExprKind::Ident(ident.clone()),
+                        span: ident.span,
+                    }),
+                    Box::new(expr),
+                ),
+                span,
+            }
+        } else {
+            expr
+        };
+
+        let span = (ident.span.0, assigned_expr.span.1);
+        Ok(Expr {
+            kind: ExprKind::Set(ident, Box::new(assigned_expr)),
+            span,
+        })
     }
 
     fn expr_at_binding(&mut self, binding: usize) -> ParseResult<Expr> {
@@ -322,74 +343,100 @@ impl<'input> Parser<'input> {
             };
             self.lexer.next();
             let right = self.expr_at_binding(binding + 1)?;
-            expr = Expr::Binary(op, Box::new(expr), Box::new(right));
+            let span = (expr.span.0, right.span.1);
+            expr = Expr {
+                kind: ExprKind::Binary(op, Box::new(expr), Box::new(right)),
+                span,
+            };
         }
 
         Ok(expr)
     }
 
     fn atom(&mut self) -> ParseResult<Expr> {
-        match self.lexer.peek() {
-            Some(Token { kind: TokenKind::LParen, .. }) => {
+        match self.try_peek()?.kind {
+            TokenKind::LParen => {
                 self.lexer.next();
                 let expr = self.expr()?;
                 self.token(TokenKind::RParen)?;
                 Ok(expr)
             }
-            Some(Token { kind: TokenKind::Ident, .. }) => {
+            TokenKind::Ident => {
                 // Function call or identifier
                 let ident = self.ident()?;
                 let tok = self.try_peek()?;
                 match tok.kind {
                     TokenKind::LParen => {
-                        let args = self.fn_args()?;
-                        Ok(Expr::FnCall(ident, args))
+                        let (args, span) = self.fn_args()?;
+                        Ok(Expr {
+                            span: (ident.span.0, span.1),
+                            kind: ExprKind::FnCall(ident, args),
+                        })
                     }
                     TokenKind::Equals => {
                         self.lexer.next();
                         // TODO: Do I want Set to be an expression?
                         let expr = self.expr()?;
-                        Ok(Expr::Set(ident, Box::new(expr)))
+                        Ok(Expr {
+                            span: (ident.span.0, expr.span.1),
+                            kind: ExprKind::Set(ident, Box::new(expr)),
+                        })
                     }
-                    _ => Ok(Expr::Ident(ident)),
+                    _ => Ok(Expr {
+                        span: ident.span,
+                        kind: ExprKind::Ident(ident),
+                    }),
                 }
             }
-            _ => Ok(Expr::Literal(self.lit()?)),
+            _ => {
+                let lit = self.lit()?;
+                Ok(Expr {
+                    span: lit.span,
+                    kind: ExprKind::Literal(lit),
+                })
+            }
         }
     }
 
     pub fn ident(&mut self) -> ParseResult<Ident> {
         let tok = self.token(TokenKind::Ident)?;
-        Ok(Ident(self.lexer.source(&tok).to_owned()))
+        Ok(Ident {
+            name: self.lexer.source(&tok).to_owned(),
+            span: tok.span,
+        })
     }
 
     pub fn typepath(&mut self) -> ParseResult<TypePath> {
-        let mut path = vec![self.ident()?];
+        let head = self.ident()?;
+        let mut span = head.span;
+        let mut path = vec![head];
         while let Some(Token { kind: TokenKind::Dot, .. }) = self.lexer.peek() {
             self.lexer.next();
-            path.push(self.ident()?);
+            let next = self.ident()?;
+            span.1 = next.span.1;
+            path.push(next);
         }
-        Ok(TypePath { path })
+        Ok(TypePath { path, span })
     }
 
     pub fn lit(&mut self) -> ParseResult<Literal> {
         let tok = self.try_peek()?;
         let src = self.lexer.source(&tok);
 
-        let literal = match tok.kind {
-            TokenKind::Int => Literal::parse_int(src, 10),
-            TokenKind::IntHex => Literal::parse_int(&src[2..], 16),
-            TokenKind::IntOct => Literal::parse_int(&src[2..], 8),
-            TokenKind::IntBin => Literal::parse_int(&src[2..], 2),
-            TokenKind::Float => Literal::parse_float(src),
+        let kind = match tok.kind {
+            TokenKind::Int => LiteralKind::parse_int(src, 10),
+            TokenKind::IntHex => LiteralKind::parse_int(&src[2..], 16),
+            TokenKind::IntOct => LiteralKind::parse_int(&src[2..], 8),
+            TokenKind::IntBin => LiteralKind::parse_int(&src[2..], 2),
+            TokenKind::Float => LiteralKind::parse_float(src),
             TokenKind::String => {
                 // TODO: Move this to Literal?
                 // Unescape quotes
                 let val = src[1..src.len() - 1].replace("\\\"", "\"");
-                Literal::String(val)
+                LiteralKind::String(val)
             }
-            TokenKind::True => Literal::Bool(true),
-            TokenKind::False => Literal::Bool(false),
+            TokenKind::True => LiteralKind::Bool(true),
+            TokenKind::False => LiteralKind::Bool(false),
             _ => {
                 return Err(ParseError {
                     kind: ParseErrorKind::UnexpectedToken(tok),
@@ -398,7 +445,7 @@ impl<'input> Parser<'input> {
             }
         };
         self.lexer.next();
-        Ok(literal)
+        Ok(Literal { kind, span: tok.span })
     }
 }
 
@@ -482,20 +529,27 @@ mod tests {
 
     #[test]
     fn logical_precedance() {
-        use BinOp::*;
-        use Expr::*;
         let b = Box::new;
 
         let mut parser = parser("(true and false) or true");
-        let want = Ok(Binary(
-            Lor,
-            b(Binary(
-                Land,
-                b(Literal(true.into())),
-                b(Literal(false.into())),
-            )),
-            b(Literal(true.into())),
-        ));
+        let want = Ok(Expr {
+            kind: ExprKind::Binary(
+                BinOp::Lor,
+                b(Expr {
+                    kind: ExprKind::Binary(
+                        BinOp::Land,
+                        b(Expr {
+                            kind: ExprKind::Literal(true.into()),
+                            span: (1, 5),
+                        }),
+                        b(ExprKind::Literal(false.into())),
+                    ),
+                    span: (0, 16),
+                }),
+                b(ExprKind::Literal(true.into())),
+            ),
+            span: (0, 18),
+        });
         assert_eq!(parser.expr(), want);
         assert!(parser.finished());
     }

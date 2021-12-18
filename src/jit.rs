@@ -5,9 +5,8 @@ use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataContext, Linkage, Module};
 
 use crate::{
-    ast::{self, BinOp, Expr, Literal},
+    ast::{self, BinOp, Expr, ExprKind, Literal, LiteralKind},
     parse::Parser,
-    queries::{DatabaseStruct, Program},
 };
 
 // TODO: We just assume you return an int
@@ -15,7 +14,7 @@ const ASSUMED_TYPE: types::Type = cranelift::codegen::ir::types::I32;
 
 // TODO: This needs to be done earlier
 fn resolve_typepath(typepath: &ast::TypePath) -> types::Type {
-    match typepath.path[0].0.as_str() {
+    match typepath.path[0].name.as_str() {
         "Int" => cranelift::codegen::ir::types::I32,
         "F64" => cranelift::codegen::ir::types::F64,
         _ => unimplemented!(),
@@ -123,7 +122,7 @@ impl JIT {
 
     // Translate from toy-language AST nodes into Cranelift IR.
     fn translate(&mut self, func: &ast::FnDef) -> anyhow::Result<()> {
-        assert_eq!(func.name.0, "main");
+        assert_eq!(func.name.name, "main");
         assert_eq!(func.params.len(), 0);
 
         for (_name, typepath) in &func.params {
@@ -190,15 +189,17 @@ impl<'a> FunctionTranslator<'a> {
     /// When you write out instructions in Cranelift, you get back `Value`s. You can then use these
     /// references in other instructions.
     fn translate_expr(&mut self, expr: &Expr) -> Value {
-        match expr {
-            Expr::Literal(Literal::Float(imm)) => self.builder.ins().f64const(*imm),
-            Expr::Literal(Literal::Int(imm)) => {
+        match &expr.kind {
+            ExprKind::Literal(Literal { kind: LiteralKind::Float(imm), .. }) => {
+                self.builder.ins().f64const(*imm)
+            }
+            ExprKind::Literal(Literal { kind: LiteralKind::Int(imm), .. }) => {
                 self.builder.ins().iconst(ASSUMED_TYPE, *imm as i64)
             }
 
-            Expr::Binary(op, lhs, rhs) => {
-                let lhs = self.translate_expr(lhs);
-                let rhs = self.translate_expr(rhs);
+            ExprKind::Binary(op, lhs, rhs) => {
+                let lhs = self.translate_expr(lhs.as_ref());
+                let rhs = self.translate_expr(rhs.as_ref());
                 let b = self.builder.ins();
                 // TODO: Use better types. Need more than just AST
                 match op {
@@ -212,31 +213,34 @@ impl<'a> FunctionTranslator<'a> {
                 }
             }
 
-            // Expr::Call(name, args) => self.translate_call(name, args),
-            // Expr::GlobalDataAddr(name) => self.translate_global_data_addr(name),
-            Expr::Ident(ident) => {
+            // ExprKind::Call(name, args) => self.translate_call(name, args),
+            // ExprKind::GlobalDataAddr(name) => self.translate_global_data_addr(name),
+            ExprKind::Ident(ident) => {
                 // `use_var` is used to read the value of a variable.
-                let variable = self.variables.get(&ident.0).expect("variable not defined");
+                let variable = self
+                    .variables
+                    .get(&ident.name)
+                    .expect("variable not defined");
                 self.builder.use_var(*variable)
             }
 
-            Expr::Let(ident, _, expr) | Expr::Set(ident, expr) => {
+            ExprKind::Let(ident, _, expr) | ExprKind::Set(ident, expr) => {
                 // `def_var` is used to write the value of a variable. Note that variables can have
                 // multiple definitions. Cranelift will convert them into SSA form for itself
                 // automatically.
-                let new_value = self.translate_expr(expr);
-                let variable = self.variables.get(&ident.0).unwrap();
+                let new_value = self.translate_expr(expr.as_ref());
+                let variable = self.variables.get(&ident.name).unwrap();
                 self.builder.def_var(*variable, new_value);
                 new_value
             }
 
-            Expr::If { cond, then_expr, else_expr } => {
-                self.translate_if_else(cond, then_expr, else_expr.as_deref())
+            ExprKind::If { cond, then_expr, else_expr } => {
+                self.translate_if_else(cond.as_ref(), then_expr.as_ref(), else_expr.as_deref())
             }
 
-            Expr::Block(exprs) => self.translate_block(&exprs),
+            ExprKind::Block(exprs) => self.translate_block(&exprs),
 
-            // Expr::WhileLoop(condition, loop_body) => {
+            // ExprKind::WhileLoop(condition, loop_body) => {
             //     self.translate_while_loop(*condition, loop_body)
             // }
             _ => unimplemented!(),
@@ -416,10 +420,10 @@ fn declare_variables_in_expr(
     index: &mut usize,
     expr: &Expr,
 ) {
-    if let Expr::Let(ident, typepath, _expr) = expr {
+    if let ExprKind::Let(ident, typepath, _expr) = &expr.kind {
         let var = Variable::new(*index);
-        if !variables.contains_key(&ident.0) {
-            variables.insert(ident.0.to_owned(), var);
+        if !variables.contains_key(&ident.name) {
+            variables.insert(ident.name.clone(), var);
             let typ =
                 resolve_typepath(typepath.as_ref().expect("type inference not supported yet"));
             builder.declare_var(var, typ);

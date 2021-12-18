@@ -12,9 +12,8 @@ pub enum TyKind {
     UInt(UIntTy),
     Float(FloatTy),
     String,
+    Tuple(Vec<TyS>),
 }
-
-// TODO: Add U/I128?
 
 #[derive(PartialEq, Eq, Hash)]
 pub enum IntTy {

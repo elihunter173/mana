@@ -2,9 +2,18 @@ use std::str::FromStr;
 
 pub type Span = (usize, usize);
 
+// TODO: Make a HasSpan trait? Typepath can calculate its own span
+// TODO: Maybe I should create a Spanned helper struct?
+
+#[derive(Clone, Debug)]
+pub struct Literal {
+    pub span: Span,
+    pub kind: LiteralKind,
+}
+
 // TODO: I think Literal should probably just be the string?
 #[derive(Clone, Debug)]
-pub enum Literal {
+pub enum LiteralKind {
     Bool(bool),
     // TODO: This should be better
     Int(isize),
@@ -12,21 +21,7 @@ pub enum Literal {
     String(String),
 }
 
-impl PartialEq for Literal {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Bool(s), Self::Bool(o)) => s == o,
-            (Self::Int(s), Self::Int(o)) => s == o,
-            (Self::String(s), Self::String(o)) => s == o,
-            (Self::Float(s), Self::Float(o)) => (s.is_nan() && o.is_nan()) || s == o,
-            _ => false,
-        }
-    }
-}
-
-impl Eq for Literal {}
-
-impl Literal {
+impl LiteralKind {
     pub fn parse_int(digits: &str, radix: u32) -> Self {
         // TODO: Maybe optimize this?
         let mut num = 0;
@@ -48,26 +43,25 @@ impl Literal {
     pub fn parse_float(input: &str) -> Self {
         // TODO: Use better parsing logic
         let input = input.replace("_", "");
-        Literal::Float(f64::from_str(&input).unwrap())
+        Self::Float(f64::from_str(&input).unwrap())
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
 // TODO: Why do we own the string
-pub struct Ident(pub String);
+// TODO: Add a span/
+#[derive(Clone, Debug)]
+pub struct Ident {
+    pub span: Span,
+    pub name: String,
+}
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct TypePath {
+    pub span: Span,
     pub path: Vec<Ident>,
 }
 
-// Is this a good way to do things?
-// pub struct Expr {
-//   typ: Type,
-//   kind: ExprKind,
-// }
-
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct FnDef {
     pub name: Ident,
     pub params: Vec<(Ident, TypePath)>,
@@ -75,14 +69,20 @@ pub struct FnDef {
     pub body: Vec<Expr>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum Item {
     FnDef(FnDef),
     Import(TypePath),
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Expr {
+#[derive(Clone, Debug)]
+pub struct Expr {
+    pub span: Span,
+    pub kind: ExprKind,
+}
+
+#[derive(Clone, Debug)]
+pub enum ExprKind {
     Ident(Ident),
     Literal(Literal),
     Binary(BinOp, Box<Expr>, Box<Expr>),
@@ -106,16 +106,16 @@ impl Expr {
     where
         F: FnMut(&Expr),
     {
-        match self {
-            Expr::Ident(_) | Expr::Literal(_) => {}
-            Expr::Binary(_, l, r) => {
+        match &self.kind {
+            ExprKind::Ident(_) | ExprKind::Literal(_) => {}
+            ExprKind::Binary(_, l, r) => {
                 f(l);
                 f(r);
             }
-            Expr::Unary(_, x) | Expr::Let(_, _, x) | Expr::Set(_, x) => {
+            ExprKind::Unary(_, x) | ExprKind::Let(_, _, x) | ExprKind::Set(_, x) => {
                 f(x);
             }
-            Expr::If {
+            ExprKind::If {
                 cond: _,
                 then_expr: true_expr,
                 else_expr: false_expr,
@@ -125,7 +125,7 @@ impl Expr {
                     f(false_expr);
                 }
             }
-            Expr::Block(exprs) => {
+            ExprKind::Block(exprs) => {
                 exprs.iter().for_each(f);
             }
             // TODO: Finish
@@ -134,7 +134,7 @@ impl Expr {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum BinOp {
     Mul,
     Div,
@@ -151,7 +151,7 @@ pub enum BinOp {
     Geq,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum UnaryOp {
     Neg,
 }

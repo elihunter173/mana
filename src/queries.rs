@@ -4,7 +4,7 @@ use crate::{
     parse::{ParseError, Parser},
 };
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq)]
 pub struct Parsed {
     pub items: Vec<Item>,
 }

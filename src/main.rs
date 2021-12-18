@@ -9,7 +9,7 @@ mod intern;
 mod jit;
 mod lex;
 mod parse;
-mod queries;
+// mod queries;
 mod ty;
 
 use std::{fs::File, io::Read};
@@ -17,11 +17,7 @@ use std::{fs::File, io::Read};
 use clap::{Parser, Subcommand};
 use rustyline::{error::ReadlineError, Editor};
 
-use crate::{
-    jit::JIT,
-    lex::Lexer,
-    queries::{DatabaseStruct, Program},
-};
+use crate::{jit::JIT, lex::Lexer};
 
 #[derive(Parser)]
 #[clap(version = "0.1.0", author = "Eli W. Hunter <elihunter173@gmail.com>")]
@@ -58,19 +54,20 @@ fn main() {
 }
 
 fn parse_and_print(path: &str, mut f: File) {
-    let mut program = String::new();
-    f.read_to_string(&mut program).unwrap();
+    let mut code = String::new();
+    f.read_to_string(&mut code).unwrap();
 
-    let mut db = DatabaseStruct::default();
-    db.set_source_code(program.clone());
-    match db.parse() {
-        Ok(parsed) => {
-            for x in parsed.items {
+    // let mut db = DatabaseStruct::default();
+    // db.set_source_code(program.clone());
+    let mut parser = crate::parse::Parser::new(&code);
+    match parser.items() {
+        Ok(items) => {
+            for x in items {
                 println!("{:?}", x);
             }
         }
         Err(err) => crate::diagnostic::emit(
-            &codespan_reporting::files::SimpleFile::new(&path, &program),
+            &codespan_reporting::files::SimpleFile::new(&path, &code),
             &crate::diagnostic::diagnostic_from_parse_error(&err),
         ),
     };

@@ -7,3 +7,4 @@ fn main(): Int {
     } else {
         3
     }
+}
