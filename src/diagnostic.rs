@@ -13,9 +13,9 @@ type DiagFile<'a> = SimpleFile<&'a str, &'a str>;
 
 pub fn diagnostic_from_parse_error<'a>(err: &ParseError) -> Diagnostic<()> {
     match err.kind {
-        ParseErrorKind::EndOfStream => {
-            Diagnostic::new(Severity::Error).with_message("unexpected end of file")
-        }
+        ParseErrorKind::UnexpectedEOF => Diagnostic::new(Severity::Error)
+            .with_message("unexpected end of file")
+            .with_labels(vec![Label::primary((), err.span.0..err.span.1)]),
         ParseErrorKind::UnexpectedToken(tok) => Diagnostic::new(Severity::Error)
             .with_message("unexpected token")
             .with_labels(vec![Label::primary((), err.span.0..err.span.1)

@@ -126,7 +126,7 @@ impl JIT {
         assert_eq!(func.name.0, "main");
         assert_eq!(func.params.len(), 0);
 
-        for (name, typepath) in &func.params {
+        for (_name, typepath) in &func.params {
             let typ = resolve_typepath(typepath);
             self.ctx.func.signature.params.push(AbiParam::new(typ));
         }

@@ -14,7 +14,7 @@ pub struct ParseError {
 // TODO: Figure out good error reporting
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum ParseErrorKind {
-    EndOfStream,
+    UnexpectedEOF,
     UnexpectedToken(Token),
 }
 
@@ -39,8 +39,8 @@ impl<'input> Parser<'input> {
 impl<'input> Parser<'input> {
     fn try_peek(&mut self) -> ParseResult<Token> {
         self.lexer.peek().ok_or_else(|| ParseError {
-            kind: ParseErrorKind::EndOfStream,
-            span: (self.code.len() - 1, self.code.len()),
+            kind: ParseErrorKind::UnexpectedEOF,
+            span: (self.code.len() - 1, self.code.len() - 1),
         })
     }
 
@@ -57,7 +57,7 @@ impl<'input> Parser<'input> {
     }
 
     // TODO: Is this useful?
-    fn try_token(&mut self, kind: TokenKind) -> Option<Token> {
+    fn maybe_token(&mut self, kind: TokenKind) -> Option<Token> {
         let tok = self.lexer.peek()?;
         if tok.kind != kind {
             return None;
@@ -81,7 +81,7 @@ impl<'input> Parser<'input> {
         } else {
             // TODO: Make delimited helper
             parsed.push(parser(self)?);
-            while self.try_token(delimiter).is_some() {
+            while self.maybe_token(delimiter).is_some() {
                 // This allows for trailing delimiters
                 // TODO: This is really hard to read
                 // If the token we're peeking at is what we want
@@ -103,7 +103,7 @@ impl<'input> Parser<'input> {
         if !self.finished() {
             items.push(self.item()?);
         }
-        while self.try_token(TokenKind::Semicolon).is_some() {
+        while self.maybe_token(TokenKind::Semicolon).is_some() {
             if self.finished() {
                 break;
             }
@@ -138,7 +138,7 @@ impl<'input> Parser<'input> {
             TokenKind::Comma,
             TokenKind::RParen,
         )?;
-        let return_type = if self.try_token(TokenKind::Colon).is_some() {
+        let return_type = if self.maybe_token(TokenKind::Colon).is_some() {
             Some(self.typepath()?)
         } else {
             None
@@ -181,7 +181,7 @@ impl<'input> Parser<'input> {
         self.token(TokenKind::If)?;
         let cond = self.expr()?;
         let true_block = self.block()?;
-        let false_expr = if self.try_token(TokenKind::Else).is_some() {
+        let false_expr = if self.maybe_token(TokenKind::Else).is_some() {
             let tok = self.try_peek()?;
             if tok.kind == TokenKind::If {
                 Some(self.if_chain()?)
@@ -210,7 +210,7 @@ impl<'input> Parser<'input> {
     pub fn let_(&mut self) -> ParseResult<Expr> {
         self.token(TokenKind::Let)?;
         let ident = self.ident()?;
-        let typepath = if self.try_token(TokenKind::Colon).is_some() {
+        let typepath = if self.maybe_token(TokenKind::Colon).is_some() {
             Some(self.typepath()?)
         } else {
             None
