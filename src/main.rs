@@ -1,15 +1,12 @@
-// Used for ty.rs
-#![feature(hash_set_entry)]
+#![feature(map_try_insert)]
 // I'm working on things and those errors are noisy
 #![allow(dead_code)]
-
 // matches!() sometimes doesn't work with rust-analyzer, and I think the code is similarly
 // readable, so I just ignore matches!()
 #![allow(clippy::match_like_matches_macro)]
 
 mod ast;
 mod diagnostic;
-mod intern;
 mod jit;
 mod lex;
 mod parse;
