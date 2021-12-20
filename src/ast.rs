@@ -5,14 +5,14 @@ pub type Span = (usize, usize);
 // TODO: Make a HasSpan trait? Typepath can calculate its own span
 // TODO: Maybe I should create a Spanned helper struct?
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Literal {
     pub span: Span,
     pub kind: LiteralKind,
 }
 
 // TODO: I think Literal should probably just be the string?
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum LiteralKind {
     Bool(bool),
     // TODO: This should be better
@@ -49,19 +49,19 @@ impl LiteralKind {
 
 // TODO: Why do we own the string
 // TODO: Add a span/
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Ident {
     pub span: Span,
     pub name: String,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct TypePath {
     pub span: Span,
     pub path: Vec<Ident>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FnDef {
     pub name: Ident,
     pub params: Vec<(Ident, TypePath)>,
@@ -69,19 +69,19 @@ pub struct FnDef {
     pub body: Vec<Expr>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Item {
     FnDef(FnDef),
     Import(TypePath),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Expr {
     pub span: Span,
     pub kind: ExprKind,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ExprKind {
     Ident(Ident),
     Literal(Literal),
@@ -134,7 +134,7 @@ impl Expr {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum BinOp {
     Mul,
     Div,
@@ -151,7 +151,7 @@ pub enum BinOp {
     Geq,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum UnaryOp {
     Neg,
 }

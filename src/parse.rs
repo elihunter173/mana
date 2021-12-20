@@ -351,10 +351,13 @@ impl<'input> Parser<'input> {
     fn atom(&mut self) -> ParseResult<Expr> {
         match self.try_peek()?.kind {
             TokenKind::LParen => {
-                self.lexer.next();
+                let lparen = self.lexer.next().unwrap();
                 let expr = self.expr()?;
-                self.token(TokenKind::RParen)?;
-                Ok(expr)
+                let rparen = self.token(TokenKind::RParen)?;
+                Ok(Expr {
+                    span: (lparen.span.0, rparen.span.1),
+                    ..expr
+                })
             }
             TokenKind::Ident => {
                 // Function call or identifier
@@ -446,29 +449,9 @@ impl<'input> Parser<'input> {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
-    use crate::ast::*;
 
     use matches::assert_matches;
-
-    // TODO: Replace this with something cleaner
-    macro_rules! literal_from {
-        ( $( ($variant:ident $ty:ty) )* ) => {$(
-            impl From<$ty> for Literal {
-                fn from(v: $ty) -> Self {
-                    Self::$variant(v.into())
-                }
-            }
-        )*};
-    }
-
-    literal_from!(
-        (Bool bool)
-        (Int isize)
-        (Float f64)
-        (String &str)
-    );
 
     // These are a macros rather than a function because the return value is really hairy
     fn parser(code: &str) -> Parser {
@@ -477,11 +460,11 @@ mod tests {
 
     // TODO: Stop using .into()
     macro_rules! test_literals {
-        ($( ($test_name:ident, $code:literal, $val:literal$(,)?) ),* $(,)?) => {$(
+        ($( ($test_name:ident, $code:literal, $val:expr$(,)?) ),* $(,)?) => {$(
             #[test]
             fn $test_name() {
                 let mut parser = parser($code);
-                let want = Ok($val.into());
+                let want = Ok(Literal { span: (0, $code.len()), kind: $val });
                 assert_eq!(parser.lit(), want);
                 assert!(parser.finished());
             }
@@ -489,34 +472,42 @@ mod tests {
     }
 
     test_literals! {
-        (bool_true, "true", true),
-        (bool_false, "false", false),
+        (bool_true, "true", LiteralKind::Bool(true)),
+        (bool_false, "false", LiteralKind::Bool(false)),
 
-        (int, "1", 1),
-        (int_zero, "0", 0),
-        (int_underscore, "1_000", 1_000),
-        (int_hex, "0xDEADbeef", 0xDEADBEEF),
-        (int_hex_underscore, "0x__123__abc_", 0x123_abc),
-        (int_oct, "0o76543210", 0o76543210),
-        (int_oct_underscore, "0o100_644", 0o100_644),
-        (int_bin, "0b0101", 0b0101),
-        (int_bin_underscore, "0b0101_1111", 0b0101_1111),
+        (int, "1", LiteralKind::Int(1)),
+        (int_zero, "0", LiteralKind::Int(0)),
+        (int_underscore, "1_000", LiteralKind::Int(1_000)),
+        (int_hex, "0xDEADbeef", LiteralKind::Int(0xDEADBEEF)),
+        (int_hex_underscore, "0x__123__abc_", LiteralKind::Int(0x123_abc)),
+        (int_oct, "0o76543210", LiteralKind::Int(0o76543210)),
+        (int_oct_underscore, "0o100_644", LiteralKind::Int(0o100_644)),
+        (int_bin, "0b0101", LiteralKind::Int(0b0101)),
+        (int_bin_underscore, "0b0101_1111", LiteralKind::Int(0b0101_1111)),
 
-        (float, "1.0", 1.0),
-        (float_underscore, "1_000.0", 1_000.0),
-        (float_e, "1e-06", 1e-06),
-        (float_e_cap, "1E-06", 1E-06),
-        (float_e_underscore, "1_000.123_456e+3", 1_000.123_456e+3),
+        (float, "1.0", LiteralKind::Float(1.0)),
+        (float_underscore, "1_000.0", LiteralKind::Float(1_000.0)),
+        (float_e, "1e-06", LiteralKind::Float(1e-06)),
+        (float_e_cap, "1E-06", LiteralKind::Float(1E-06)),
+        (float_e_underscore, "1_000.123_456e+3", LiteralKind::Float(1_000.123_456e+3)),
 
-        (str_basic, r#""Hello, World!""#, "Hello, World!"),
-        (str_escape, r#""The cowboy said \"Howdy!\" and then walked away""#, r#"The cowboy said "Howdy!" and then walked away"#),
+        (str_basic, r#""Hello, World!""#, LiteralKind::String("Hello, World!".to_owned())),
+        (
+            str_escape,
+            r#""The cowboy said \"Howdy!\" and then walked away""#,
+            LiteralKind::String(r#"The cowboy said "Howdy!" and then walked away"#.to_owned()),
+        ),
     }
 
     #[test]
     fn typepath() {
         let mut parser = parser("Foo.Bar");
         let want = Ok(TypePath {
-            path: vec![Ident("Foo".to_owned()), Ident("Bar".to_owned())],
+            path: vec![
+                Ident { name: "Foo".to_owned(), span: (0, 3) },
+                Ident { name: "Bar".to_owned(), span: (4, 7) },
+            ],
+            span: (0, 7),
         });
         assert_eq!(parser.typepath(), want);
         assert!(parser.finished());
@@ -524,28 +515,23 @@ mod tests {
 
     #[test]
     fn logical_precedance() {
-        let b = Box::new;
+        #[track_caller]
+        fn expect_op(op: BinOp, expr: &Expr) -> (&Expr, &Expr) {
+            match &expr.kind {
+                ExprKind::Binary(actual_op, left, right) if *actual_op == op => {
+                    (left.as_ref(), right.as_ref())
+                }
+                _ => panic!("expected {:?}", op),
+            }
+        }
 
         let mut parser = parser("(true and false) or true");
-        let want = Ok(Expr {
-            kind: ExprKind::Binary(
-                BinOp::Lor,
-                b(Expr {
-                    kind: ExprKind::Binary(
-                        BinOp::Land,
-                        b(Expr {
-                            kind: ExprKind::Literal(true.into()),
-                            span: (1, 5),
-                        }),
-                        b(ExprKind::Literal(false.into())),
-                    ),
-                    span: (0, 16),
-                }),
-                b(ExprKind::Literal(true.into())),
-            ),
-            span: (0, 18),
-        });
-        assert_eq!(parser.expr(), want);
+        let expr = parser.expr().unwrap();
+        assert_eq!(expr.span, (0, 24));
+        let (left, _right) = expect_op(BinOp::Lor, &expr);
+        assert_eq!(left.span, (0, 16));
+        expect_op(BinOp::Land, &left);
+
         assert!(parser.finished());
     }
 
@@ -558,40 +544,65 @@ mod tests {
 
     #[test]
     fn arithmetic_precedance() {
-        use BinOp::*;
-        use Expr::*;
-        let b = Box::new;
+        #[track_caller]
+        fn expect_op(op: BinOp, expr: &Expr) -> (&Expr, &Expr) {
+            match &expr.kind {
+                ExprKind::Binary(actual_op, left, right) if *actual_op == op => {
+                    (left.as_ref(), right.as_ref())
+                }
+                _ => panic!("expected {:?}, expr: {:?}", op, expr),
+            }
+        }
 
         let mut parser = parser("1 + 2 * 3 / (4 - 5)");
-        let want = Ok(Binary(
-            Add,
-            b(Literal(1.into())),
-            b(Binary(
-                Div,
-                b(Binary(Mul, b(Literal(2.into())), b(Literal(3.into())))),
-                b(Binary(Sub, b(Literal(4.into())), b(Literal(5.into())))),
-            )),
-        ));
-        assert_eq!(parser.expr(), want);
+
+        let expr = parser.expr().unwrap();
+        assert_eq!(expr.span, (0, 19));
+        let (_left, right) = expect_op(BinOp::Add, &expr);
+        assert_eq!(right.span, (4, 19));
+        let (left, right) = expect_op(BinOp::Div, &right);
+        expect_op(BinOp::Mul, left);
+        assert_eq!(right.span, (12, 19));
+        expect_op(BinOp::Sub, &right);
+
         assert!(parser.finished());
     }
 
     #[test]
     fn fn_calls() {
-        let b = Box::new;
-
         let mut parser = parser("foo(n, \"bar\") + 1");
-        let want = Ok(Expr::Binary(
-            BinOp::Add,
-            b(Expr::FnCall(
-                Ident("foo".to_owned()),
-                vec![
-                    Expr::Ident(Ident("n".to_owned())),
-                    Expr::Literal("bar".into()),
-                ],
-            )),
-            b(Expr::Literal(1.into())),
-        ));
+        let want = Ok(Expr {
+            span: (0, 17),
+            kind: ExprKind::Binary(
+                BinOp::Add,
+                Box::new(Expr {
+                    span: (0, 13),
+                    kind: ExprKind::FnCall(
+                        Ident { span: (0, 3), name: "foo".to_owned() },
+                        vec![
+                            Expr {
+                                span: (4, 5),
+                                kind: ExprKind::Ident(Ident { span: (4, 5), name: "n".to_owned() }),
+                            },
+                            Expr {
+                                span: (7, 12),
+                                kind: ExprKind::Literal(Literal {
+                                    span: (7, 12),
+                                    kind: LiteralKind::String("bar".to_owned()),
+                                }),
+                            },
+                        ],
+                    ),
+                }),
+                Box::new(Expr {
+                    span: (16, 17),
+                    kind: ExprKind::Literal(Literal {
+                        span: (16, 17),
+                        kind: LiteralKind::Int(1),
+                    }),
+                }),
+            ),
+        });
         assert_eq!(parser.expr(), want);
         assert!(parser.finished());
     }
@@ -605,10 +616,25 @@ fn the_answer(): UInt {
 }",
         );
         let want = Ok(Item::FnDef(FnDef {
-            name: Ident("the_answer".to_owned()),
+            name: Ident {
+                name: "the_answer".to_owned(),
+                span: (4, 14),
+            },
             params: vec![],
-            return_typepath: Some(TypePath { path: vec![Ident("UInt".to_owned())] }),
-            body: vec![Expr::Literal(42.into())],
+            return_typepath: Some(TypePath {
+                path: vec![Ident {
+                    name: "UInt".to_owned(),
+                    span: (18, 22),
+                }],
+                span: (18, 22),
+            }),
+            body: vec![Expr {
+                kind: ExprKind::Literal(Literal {
+                    kind: LiteralKind::Int(42),
+                    span: (29, 31),
+                }),
+                span: (29, 31),
+            }],
         }));
         assert_eq!(parser.item(), want);
         assert!(parser.finished());

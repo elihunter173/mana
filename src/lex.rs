@@ -362,7 +362,7 @@ mod test {
             .map(|&(start, kind, end)| Token { kind, span: (start, end) })
             .collect();
         let actual: Vec<_> = Lexer::new(input).collect();
-        assert_eq!(expected.as_slice(), actual.as_slice());
+        assert_eq!(actual.as_slice(), expected.as_slice());
     }
 
     #[test]
@@ -490,7 +490,7 @@ mod test {
     }
 
     #[test]
-    fn test_comment() {
+    fn test_fn_def() {
         assert_lex(
             r#"
 // This is just a silly function to test comments
@@ -500,7 +500,7 @@ fn foo() -> UInt {
 }
 "#,
             &[
-                (1, TokenKind::Comment, 51),
+                (50, TokenKind::Newline, 51),
                 (51, TokenKind::Fn, 53),
                 (54, TokenKind::Ident, 57),
                 (57, TokenKind::LParen, 58),

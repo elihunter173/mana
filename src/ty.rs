@@ -1,5 +1,7 @@
 //! This `ty.rs` is shamelessly "inspired" by Rust's ty module
 
+use std::collections::BTreeMap;
+
 #[derive(PartialEq, Eq, Hash)]
 pub struct TyS {
     kind: TyKind,
@@ -13,6 +15,8 @@ pub enum TyKind {
     Float(FloatTy),
     String,
     Tuple(Vec<TyS>),
+    // Key must be unique
+    Struct(BTreeMap<String, TyS>),
 }
 
 #[derive(PartialEq, Eq, Hash)]
