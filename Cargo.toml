@@ -21,6 +21,9 @@ logos = "0.12"
 rustyline = "7.1"
 clap = { version = "3.0.0-rc.6", features = ["derive"] }
 
+# Interning
+lasso = "0.6.0"
+
 # Compilation
 cranelift = "0.78.0"
 cranelift-module = "0.78.0"

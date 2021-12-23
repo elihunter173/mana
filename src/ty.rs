@@ -1,10 +1,11 @@
-//! This `ty.rs` is shamelessly "inspired" by Rust's ty module
+//! This module is shamelessly "inspired" by Rust's ty module
 
 use std::collections::{BTreeMap, HashMap};
 
-type Ty<'tcx> = &'tcx TyS;
+pub type Ty<'ctx> = &'ctx TyS;
 
-struct TyInterner {
+#[derive(Debug)]
+pub struct TyInterner {
     map: HashMap<String, TyS>,
 }
 
@@ -37,12 +38,19 @@ impl TyInterner {
                     TyS { kind: TyKind::Float(FloatTy::F64) },
                 ),
                 ("String".to_owned(), TyS { kind: TyKind::String }),
+                // TODO: This is evil
+                ("@unit".to_owned(), TyS { kind: TyKind::Unit }),
             ]),
         }
     }
 
-    pub fn resolve(&self, path: &str) -> Ty<'_> {
-        &self.map[path]
+    // TODO: This is terrible
+    pub fn unit_ty_hack(&self) -> Ty<'_> {
+        &self.map["@unit"]
+    }
+
+    pub fn resolve(&self, path: &str) -> Option<Ty<'_>> {
+        self.map.get(path)
     }
 
     pub fn define(&mut self, path: &str, ty: TyS) -> Result<(), ()> {
@@ -53,14 +61,16 @@ impl TyInterner {
     }
 }
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct TyS {
     kind: TyKind,
 }
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum TyKind {
     Bool,
+    // TODO: This should definitely be a tuple, but I haven't implemented tuples yet
+    Unit,
     Int(IntTy),
     UInt(UIntTy),
     Float(FloatTy),
@@ -70,7 +80,7 @@ pub enum TyKind {
     Struct(BTreeMap<String, TyS>),
 }
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum IntTy {
     ISize,
     I8,
@@ -79,7 +89,7 @@ pub enum IntTy {
     I64,
 }
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum UIntTy {
     USize,
     U8,
@@ -88,7 +98,7 @@ pub enum UIntTy {
     U64,
 }
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum FloatTy {
     F32,
     F64,

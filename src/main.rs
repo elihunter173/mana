@@ -1,4 +1,5 @@
 #![feature(map_try_insert)]
+#![feature(iter_intersperse)]
 // I'm working on things and those errors are noisy
 #![allow(dead_code)]
 // matches!() sometimes doesn't work with rust-analyzer, and I think the code is similarly
@@ -7,11 +8,14 @@
 
 mod ast;
 mod diagnostic;
+mod intern;
+mod ir;
 mod jit;
 mod lex;
 mod parse;
-// mod queries;
 mod ty;
+// TODO: Re-enable salsa
+// mod queries;
 
 use std::{fs::File, io::Read};
 

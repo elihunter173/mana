@@ -1,87 +1,58 @@
-use std::str::FromStr;
+use crate::intern::Symbol;
 
 pub type Span = (usize, usize);
 
 // TODO: Make a HasSpan trait? Typepath can calculate its own span
 // TODO: Maybe I should create a Spanned helper struct?
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct Literal {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Spanned<T> {
     pub span: Span,
-    pub kind: LiteralKind,
+    pub kind: T,
 }
 
-// TODO: I think Literal should probably just be the string?
-#[derive(Clone, Debug, PartialEq)]
+pub type Literal = Spanned<LiteralKind>;
+
+// TODO: Should I make this more specific (i.e. have Int, IntHex, ...) or more general?
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LiteralKind {
-    Bool(bool),
-    // TODO: This should be better
-    Int(isize),
-    Float(f64),
-    String(String),
+    Bool,
+    Int,
+    Float,
+    String,
 }
 
-impl LiteralKind {
-    pub fn parse_int(digits: &str, radix: u32) -> Self {
-        // TODO: Maybe optimize this?
-        let mut num = 0;
-        for b in digits.bytes() {
-            let d = match b {
-                b'0'..=b'9' => b - b'0',
-                b'a'..=b'z' => b - b'a' + 10,
-                b'A'..=b'Z' => b - b'A' + 10,
-                b'_' => continue,
-                _ => panic!("unexpected digit {:?}", b),
-            };
-            num *= radix as isize;
-            num += d as isize;
-        }
-
-        Self::Int(num)
-    }
-
-    pub fn parse_float(input: &str) -> Self {
-        // TODO: Use better parsing logic
-        let input = input.replace('_', "");
-        Self::Float(f64::from_str(&input).unwrap())
-    }
-}
-
-// TODO: Why do we own the string
-// TODO: Add a span/
-#[derive(Clone, Debug, PartialEq)]
+// TODO: Why do we own the string?
+// TODO: Maybe use Spanned?
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ident {
     pub span: Span,
-    pub name: String,
+    pub name: Symbol,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TypePath {
     pub span: Span,
     pub path: Vec<Ident>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FnDef {
     pub name: Ident,
     pub params: Vec<(Ident, TypePath)>,
     pub return_typepath: Option<TypePath>,
-    pub body: Vec<Expr>,
+    pub body: Block,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Item {
     FnDef(FnDef),
     Import(TypePath),
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct Expr {
-    pub span: Span,
-    pub kind: ExprKind,
-}
+pub type Expr = Spanned<ExprKind>;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExprKind {
     Ident(Ident),
     Literal(Literal),
@@ -92,9 +63,10 @@ pub enum ExprKind {
     Set(Ident, Box<Expr>),
 
     FnCall(Ident, Vec<Expr>),
-    Block(Vec<Expr>),
+    Block(Block),
     If {
         cond: Box<Expr>,
+        // TODO: Maybe make this a Block type?
         then_expr: Box<Expr>,
         else_expr: Option<Box<Expr>>,
     },
@@ -134,7 +106,10 @@ impl Expr {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+// TODO: Maybe make this a full blown new type?
+pub type Block = Vec<Expr>;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BinOp {
     Mul,
     Div,
@@ -144,14 +119,13 @@ pub enum BinOp {
     Neq,
     Land,
     Lor,
-
     Lt,
     Leq,
     Gt,
     Geq,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UnaryOp {
     Neg,
 }

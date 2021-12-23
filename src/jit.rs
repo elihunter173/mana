@@ -5,20 +5,17 @@ use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataContext, Linkage, Module};
 
 use crate::{
-    ast::{self, BinOp, Expr, ExprKind, Literal, LiteralKind},
+    ast::{self, BinOp, Expr, ExprKind},
+    intern::Symbol,
     parse::Parser,
 };
 
 // TODO: We just assume you return an int
 const ASSUMED_TYPE: types::Type = cranelift::codegen::ir::types::I32;
 
-// TODO: This needs to be done earlier
+// TODO: This needs to be done earlier. Also this is just wrong
 fn resolve_typepath(typepath: &ast::TypePath) -> types::Type {
-    match typepath.path[0].name.as_str() {
-        "Int" => cranelift::codegen::ir::types::I32,
-        "F64" => cranelift::codegen::ir::types::F64,
-        _ => unimplemented!(),
-    }
+    ASSUMED_TYPE
 }
 
 /// The basic JIT class.
@@ -122,9 +119,6 @@ impl JIT {
 
     // Translate from toy-language AST nodes into Cranelift IR.
     fn translate(&mut self, func: &ast::FnDef) -> anyhow::Result<()> {
-        assert_eq!(func.name.name, "main");
-        assert_eq!(func.params.len(), 0);
-
         for (_name, typepath) in &func.params {
             let typ = resolve_typepath(typepath);
             self.ctx.func.signature.params.push(AbiParam::new(typ));
@@ -181,7 +175,7 @@ impl JIT {
 /// A collection of state used for translating from toy-language AST nodes into Cranelift IR.
 struct FunctionTranslator<'a> {
     builder: FunctionBuilder<'a>,
-    variables: HashMap<String, Variable>,
+    variables: HashMap<Symbol, Variable>,
     module: &'a mut JITModule,
 }
 
@@ -190,13 +184,13 @@ impl<'a> FunctionTranslator<'a> {
     /// references in other instructions.
     fn translate_expr(&mut self, expr: &Expr) -> Value {
         match &expr.kind {
-            ExprKind::Literal(Literal { kind: LiteralKind::Float(imm), .. }) => {
-                self.builder.ins().f64const(*imm)
-            }
-            ExprKind::Literal(Literal { kind: LiteralKind::Int(imm), .. }) => {
-                self.builder.ins().iconst(ASSUMED_TYPE, *imm as i64)
-            }
-
+            // TODO: Fix
+            // ExprKind::Literal(Literal { kind: LiteralKind::Float(imm), .. }) => {
+            //     self.builder.ins().f64const(*imm)
+            // }
+            // ExprKind::Literal(Literal { kind: LiteralKind::Int(imm), .. }) => {
+            //     self.builder.ins().iconst(ASSUMED_TYPE, *imm as i64)
+            // }
             ExprKind::Binary(op, lhs, rhs) => {
                 let lhs = self.translate_expr(lhs.as_ref());
                 let rhs = self.translate_expr(rhs.as_ref());
@@ -402,7 +396,7 @@ fn declare_variables(
     builder: &mut FunctionBuilder,
     exprs: &[Expr],
     _entry_block: Block,
-) -> HashMap<String, Variable> {
+) -> HashMap<Symbol, Variable> {
     let mut variables = HashMap::new();
     let mut index = 0;
 
@@ -416,7 +410,7 @@ fn declare_variables(
 /// Recursively descend through the AST, translating all implicit variable declarations.
 fn declare_variables_in_expr(
     builder: &mut FunctionBuilder,
-    variables: &mut HashMap<String, Variable>,
+    variables: &mut HashMap<Symbol, Variable>,
     index: &mut usize,
     expr: &Expr,
 ) {
