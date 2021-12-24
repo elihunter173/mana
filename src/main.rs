@@ -17,10 +17,10 @@ mod ty;
 // TODO: Re-enable salsa
 // mod queries;
 
-use std::{fs::File, io::Read};
+use std::fs;
 
 use clap::{Parser, Subcommand};
-use rustyline::{error::ReadlineError, Editor};
+// use rustyline::{error::ReadlineError, Editor};
 
 use crate::{jit::JIT, lex::Lexer};
 
@@ -43,28 +43,26 @@ fn main() {
 
     match opts.subcmd {
         Some(ManaCommand::Lex { path }) => {
-            let file = File::open(path).unwrap();
-            lex(file);
+            lex(&path);
         }
         Some(ManaCommand::Parse { path }) => {
-            let file = File::open(&path).unwrap();
-            parse_and_print(&path, file);
+            parse_and_print(&path);
         }
         Some(ManaCommand::Run { path }) => {
-            let file = File::open(path).unwrap();
-            run(file);
+            run(&path);
         }
-        None => repl(),
+        None => todo!("repl"), // repl()
     }
 }
 
-fn parse_and_print(path: &str, mut f: File) {
-    let mut code = String::new();
-    f.read_to_string(&mut code).unwrap();
+fn parse_and_print(path: &str) {
+    let code = fs::read_to_string(path).unwrap();
+
+    let mut symbol_interner = intern::SymbolInterner::new();
 
     // let mut db = DatabaseStruct::default();
     // db.set_source_code(program.clone());
-    let mut parser = crate::parse::Parser::new(&code);
+    let mut parser = crate::parse::Parser::new(&code, &mut symbol_interner);
     match parser.items() {
         Ok(items) => {
             for x in items {
@@ -78,27 +76,66 @@ fn parse_and_print(path: &str, mut f: File) {
     };
 }
 
-fn lex(mut f: File) {
-    let mut program = String::new();
-    f.read_to_string(&mut program).unwrap();
+fn lex(path: &str) {
+    let code = fs::read_to_string(path).unwrap();
 
-    let lexer = Lexer::new(&program);
+    let lexer = Lexer::new(&code);
     for item in lexer {
         println!("{:?}", item);
     }
 }
 
-fn run(mut f: File) {
-    let mut code = String::new();
-    f.read_to_string(&mut code).unwrap();
-    let mut jit = JIT::new();
-    let code_ptr = jit.compile(&code).unwrap();
+fn run(path: &str) {
+    let code = fs::read_to_string(path).unwrap();
+
+    let mut ty_interner = ty::TyInterner::with_primitives();
+    let mut symbol_interner = intern::SymbolInterner::new();
+
+    let mut parser = crate::parse::Parser::new(&code, &mut symbol_interner);
+
+    let func = match parser.items() {
+        Ok(mut items) => {
+            assert_eq!(items.len(), 1);
+            if let ast::Item::FnDef(func) = items.pop().unwrap() {
+                func
+            } else {
+                panic!("only support one function right now");
+            }
+        }
+        Err(err) => {
+            crate::diagnostic::emit(
+                &codespan_reporting::files::SimpleFile::new(path, &code),
+                &crate::diagnostic::diagnostic_from_parse_error(&err),
+            );
+            return;
+        }
+    };
+
+    let lowering_ctx = ir::LoweringContext {
+        ty_interner: &mut ty_interner,
+        symbol_interner: &symbol_interner,
+    };
+    let func = match lowering_ctx.lower_fn_def(&func) {
+        Ok(func) => func,
+        Err(err) => {
+            crate::diagnostic::emit(
+                &codespan_reporting::files::SimpleFile::new(path, &code),
+                &crate::diagnostic::diagnostic_from_lowering_error(&err),
+            );
+            return;
+        }
+    };
+
+    let mut jit = JIT::new(&symbol_interner);
+    let code_ptr = jit.compile(&func).unwrap();
+
     // SAFETY: Whee! Hopefully the JIT compiler actually did compile to an arg-less and
     // return-value-less procedure
     let code_fn = unsafe { std::mem::transmute::<_, fn() -> i64>(code_ptr) };
     println!("{}", code_fn());
 }
 
+/*
 fn repl() {
     // `()` can be used when no completer is required
     let mut rl = Editor::<()>::new();
@@ -144,3 +181,4 @@ fn repl() {
     }
     rl.save_history("history.txt").unwrap();
 }
+*/

@@ -16,10 +16,11 @@ pub type Literal = Spanned<LiteralKind>;
 // TODO: Should I make this more specific (i.e. have Int, IntHex, ...) or more general?
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LiteralKind {
-    Bool,
-    Int,
-    Float,
-    String,
+    Bool(bool),
+    Int(u128),
+    // TODO: Maybe use a symbol?
+    Float(Symbol),
+    String(Symbol),
 }
 
 // TODO: Move this to a different module?
@@ -64,46 +65,13 @@ pub enum ExprKind {
 
     FnCall(Ident, Vec<Expr>),
     Block(Block),
+    // TODO: Make this a struct?
     If {
         cond: Box<Expr>,
         // TODO: Maybe make this a Block type?
         then_expr: Box<Expr>,
         else_expr: Option<Box<Expr>>,
     },
-}
-
-impl Expr {
-    // TODO: Find a way to easily iterate over the children
-    pub fn apply_children<F>(&self, mut f: F)
-    where
-        F: FnMut(&Expr),
-    {
-        match &self.kind {
-            ExprKind::Ident(_) | ExprKind::Literal(_) => {}
-            ExprKind::Binary(_, l, r) => {
-                f(l);
-                f(r);
-            }
-            ExprKind::Unary(_, x) | ExprKind::Let(_, _, x) | ExprKind::Set(_, x) => {
-                f(x);
-            }
-            ExprKind::If {
-                cond: _,
-                then_expr: true_expr,
-                else_expr: false_expr,
-            } => {
-                f(true_expr);
-                if let Some(false_expr) = false_expr {
-                    f(false_expr);
-                }
-            }
-            ExprKind::Block(exprs) => {
-                exprs.iter().for_each(f);
-            }
-            // TODO: Finish
-            _ => todo!(),
-        }
-    }
 }
 
 // TODO: Maybe make this a full blown new type?

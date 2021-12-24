@@ -4,26 +4,29 @@ use crate::{
     parse::{ParseError, Parser},
 };
 
+// TODO: Look at https://github.com/Kixiron/codespan-salsa/blob/master/src/main.rs
+
 #[derive(Debug, PartialEq)]
 pub struct Parsed {
     pub items: Vec<Item>,
 }
 
-#[salsa::query_group(ParserGroup)]
+#[salsa::query_group(ProgramGroup)]
 pub trait Program: salsa::Database {
-    /// The name of the source code
-    #[salsa::input]
-    fn filename(&self) -> String;
+    // TODO: How do we pipe the source code through well?
+    // TODO: Probably want to use Arc
+    // TODO: Salsa and the way I do spans don't get along well I don't think. The reason is because
+    // I keep spans on everything and so the AST will completely change if anything changes
 
     /// The source code to parse
     #[salsa::input]
-    fn source_code(&self) -> String;
+    fn source_code(&self, filename: Path) -> String;
 
-    fn parse(&self) -> Result<Parsed, ParseError>;
+    fn parse(&self, filename: Path) -> Result<Parsed, ParseError>;
 }
 
-fn parse(db: &dyn Program) -> Result<Parsed, ParseError> {
-    let code = db.source_code();
+fn parse(db: &dyn Program, filename: Path) -> Result<Parsed, ParseError> {
+    let code = db.source_code(filename);
     let mut parser = Parser::new(&code);
     // TODO: Improve error handling
     match parser.items() {
@@ -32,7 +35,7 @@ fn parse(db: &dyn Program) -> Result<Parsed, ParseError> {
     }
 }
 
-#[salsa::database(ParserGroup)]
+#[salsa::database(ProgramGroup)]
 #[derive(Default)]
 pub struct DatabaseStruct {
     storage: salsa::Storage<Self>,

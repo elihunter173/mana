@@ -24,15 +24,15 @@ type ParseResult<T> = Result<T, ParseError>;
 pub struct Parser<'input> {
     code: &'input str,
     lexer: Lexer<'input>,
-    symbols: SymbolInterner,
+    symbols: &'input mut SymbolInterner,
 }
 
 impl<'input> Parser<'input> {
-    pub fn new(code: &'input str) -> Self {
+    pub fn new(code: &'input str, symbols: &'input mut SymbolInterner) -> Self {
         Self {
             code,
             lexer: Lexer::new(code),
-            symbols: SymbolInterner::new(),
+            symbols,
         }
     }
 
@@ -427,13 +427,22 @@ impl<'input> Parser<'input> {
 
     pub fn lit(&mut self) -> ParseResult<Literal> {
         let tok = self.try_peek()?;
+        let src = self.lexer.source(&tok);
+
         let kind = match tok.kind {
-            TokenKind::Int | TokenKind::IntHex | TokenKind::IntOct | TokenKind::IntBin => {
-                LiteralKind::Int
+            TokenKind::Int => LiteralKind::Int(parse_int(src, 10)),
+            TokenKind::IntHex => LiteralKind::Int(parse_int(&src[2..], 16)),
+            TokenKind::IntOct => LiteralKind::Int(parse_int(&src[2..], 8)),
+            TokenKind::IntBin => LiteralKind::Int(parse_int(&src[2..], 2)),
+            TokenKind::Float => LiteralKind::Float(self.symbols.get_or_intern(src)),
+            TokenKind::String => {
+                // TODO: Move this to Literal?
+                // Unescape quotes
+                let val = src[1..src.len() - 1].replace("\\\"", "\"");
+                LiteralKind::String(self.symbols.get_or_intern(&val))
             }
-            TokenKind::Float => LiteralKind::Float,
-            TokenKind::String => LiteralKind::String,
-            TokenKind::True | TokenKind::False => LiteralKind::Bool,
+            TokenKind::True => LiteralKind::Bool(true),
+            TokenKind::False => LiteralKind::Bool(false),
             _ => {
                 return Err(ParseError {
                     kind: ParseErrorKind::UnexpectedToken(tok),
@@ -442,12 +451,13 @@ impl<'input> Parser<'input> {
             }
         };
         self.lexer.next();
+
         Ok(Literal { kind, span: tok.span })
     }
 }
 
 // TODO: Return Results for these wrater tha panicing
-fn parse_int(digits: &str, radix: u32) -> isize {
+fn parse_int(digits: &str, radix: u32) -> u128 {
     // TODO: Maybe optimize this?
     let mut num = 0;
     for b in digits.bytes() {
@@ -458,8 +468,8 @@ fn parse_int(digits: &str, radix: u32) -> isize {
             b'_' => continue,
             _ => panic!("unexpected digit {:?}", b),
         };
-        num *= radix as isize;
-        num += d as isize;
+        num *= radix as u128;
+        num += d as u128;
     }
 
     num
