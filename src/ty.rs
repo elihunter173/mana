@@ -64,7 +64,7 @@ impl TyInterner {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct TyS {
-    kind: TyKind,
+    pub kind: TyKind,
 }
 
 impl TyS {

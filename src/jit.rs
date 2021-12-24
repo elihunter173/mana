@@ -5,17 +5,40 @@ use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataContext, Linkage, Module};
 
 use crate::{
-    ast::{self, BinOp, Expr, ExprKind},
     intern::Symbol,
+    ir::{self, BinOp, Expr, ExprKind},
     parse::Parser,
+    ty::{self, Ty, TyKind},
 };
 
-// TODO: We just assume you return an int
-const ASSUMED_TYPE: types::Type = cranelift::codegen::ir::types::I32;
-
-// TODO: This needs to be done earlier. Also this is just wrong
-fn resolve_typepath(typepath: &ast::TypePath) -> types::Type {
-    ASSUMED_TYPE
+fn convert_type(ty: Ty<'_>) -> types::Type {
+    match ty.kind {
+        TyKind::Int(int_ty) => match int_ty {
+            // TODO: How do I determine this in general?
+            ty::IntTy::ISize => cranelift::codegen::ir::types::I64,
+            ty::IntTy::I8 => cranelift::codegen::ir::types::I8,
+            ty::IntTy::I16 => cranelift::codegen::ir::types::I16,
+            ty::IntTy::I32 => cranelift::codegen::ir::types::I32,
+            ty::IntTy::I64 => cranelift::codegen::ir::types::I64,
+        },
+        TyKind::UInt(uint_ty) => match uint_ty {
+            // TODO: How do I determine this in general?
+            ty::UIntTy::USize => cranelift::codegen::ir::types::I64,
+            ty::UIntTy::U8 => cranelift::codegen::ir::types::I8,
+            ty::UIntTy::U16 => cranelift::codegen::ir::types::I16,
+            ty::UIntTy::U32 => cranelift::codegen::ir::types::I32,
+            ty::UIntTy::U64 => cranelift::codegen::ir::types::I64,
+        },
+        TyKind::Bool => cranelift::codegen::ir::types::B8,
+        TyKind::Unit => todo!(),
+        TyKind::Float(float_ty) => match float_ty {
+            ty::FloatTy::F32 => cranelift::codegen::ir::types::F32,
+            ty::FloatTy::F64 => cranelift::codegen::ir::types::F64,
+        },
+        TyKind::String => todo!(),
+        TyKind::Tuple(_) => todo!(),
+        TyKind::Struct(_) => todo!(),
+    }
 }
 
 /// The basic JIT class.
@@ -118,18 +141,15 @@ impl JIT {
     }
 
     // Translate from toy-language AST nodes into Cranelift IR.
-    fn translate(&mut self, func: &ast::FnDef) -> anyhow::Result<()> {
+    fn translate(&mut self, func: &ir::FnDef) -> anyhow::Result<()> {
         for (_name, typepath) in &func.params {
-            let typ = resolve_typepath(typepath);
             self.ctx.func.signature.params.push(AbiParam::new(typ));
         }
 
         // Our toy language currently only supports one return value, though Cranelift is designed
         // to support more.
-        if let Some(return_typepath) = &func.return_typepath {
-            let typ = resolve_typepath(return_typepath);
-            self.ctx.func.signature.returns.push(AbiParam::new(typ));
-        }
+        let typ = resolve_typepath(func.return_ty.ty);
+        self.ctx.func.signature.returns.push(AbiParam::new(typ));
 
         // Create the builder to build a function.
         let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);

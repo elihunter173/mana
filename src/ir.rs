@@ -12,14 +12,14 @@ pub struct LoweringError<'ctx> {
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum LoweringErrorKind<'ctx> {
-    UnknownType(TypePath),
+    UnknownType(String),
     TypeConflict { want: Ty<'ctx>, got: Ty<'ctx> },
     InvalidType(Ty<'ctx>),
 }
 
 type LoweringResult<'ctx, T> = Result<T, LoweringError<'ctx>>;
 
-struct LoweringContext {
+pub struct LoweringContext {
     ty_interner: TyInterner,
     symbol_interner: SymbolInterner,
 }
@@ -38,7 +38,7 @@ impl LoweringContext {
             .ty_interner
             .resolve(&path)
             .ok_or_else(|| LoweringError {
-                kind: LoweringErrorKind::UnknownType(typepath.clone()),
+                kind: LoweringErrorKind::UnknownType(path),
                 span: typepath.span,
             })?;
         Ok(Type { ty, span: typepath.span })
@@ -74,7 +74,7 @@ impl LoweringContext {
 
     fn lower_expr(&self, expr: &ast::Expr) -> LoweringResult<Expr> {
         match &expr.kind {
-            ast::ExprKind::Ident(_) => todo!("I need to respect lexical scope here"),
+            ast::ExprKind::Ident(_) => todo!("I need to respect lexical scope for this"),
             ast::ExprKind::Literal(lit) => {
                 let lowered = self.lower_literal(lit)?;
                 Ok(Expr {
@@ -85,9 +85,12 @@ impl LoweringContext {
             }
             ast::ExprKind::Binary(op, left, right) => self.lower_binary(op, left, right),
             ast::ExprKind::Unary(op, expr) => self.lower_unary(op, expr),
-            ast::ExprKind::Let(_, _, _) => todo!(),
-            ast::ExprKind::Set(_, _) => todo!(),
-            ast::ExprKind::FnCall(_, _) => todo!(),
+            // TODO: This should respect scope
+            ast::ExprKind::Let(ident, typepath, expr) => {
+                self.lower_let(ident, typepath.as_ref(), expr)
+            }
+            ast::ExprKind::Set(_, _) => todo!("I need to add the concept of scope for this"),
+            ast::ExprKind::FnCall(_, _) => todo!("I need to add the concept of scope for this"),
             ast::ExprKind::Block(block) => {
                 let (ty, block) = self.lower_block(block)?;
                 Ok(Expr {
@@ -236,35 +239,64 @@ impl LoweringContext {
         })
     }
 
-    fn lower_literal(&self, lit: &ast::Literal) -> LoweringResult<Literal> {
+    fn lower_let(
+        &self,
+        ident: &ast::Ident,
+        typepath: Option<&ast::TypePath>,
+        expr: &ast::Expr,
+    ) -> LoweringResult<Expr> {
         todo!()
     }
 
+    fn lower_literal(&self, lit: &ast::Literal) -> LoweringResult<Literal> {
+        // TODO: Maybe consider the literal a bit more
+        let (kind, ty) = match lit.kind {
+            ast::LiteralKind::Bool => (LiteralKind::Bool, self.ty_interner.bool()),
+            ast::LiteralKind::Int => (LiteralKind::Int, self.ty_interner.resolve("Int").unwrap()),
+            ast::LiteralKind::Float => (
+                LiteralKind::Float,
+                self.ty_interner.resolve("Float64").unwrap(),
+            ),
+            ast::LiteralKind::String => (
+                LiteralKind::String,
+                self.ty_interner.resolve("String").unwrap(),
+            ),
+        };
+        Ok(Literal { kind, ty, span: lit.span })
+    }
+
     fn lower_block(&self, block: &ast::Block) -> LoweringResult<(Ty, Vec<Expr>)> {
-        todo!()
+        let mut ty = self.ty_interner.unit();
+        let mut exprs = Vec::with_capacity(block.len());
+        for expr in block.iter() {
+            let expr = self.lower_expr(expr)?;
+            ty = expr.ty;
+            exprs.push(expr);
+        }
+        Ok((ty, exprs))
     }
 }
 
 /// A resolved TypePath. `span` is where the typepath is
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Type<'ctx> {
-    ty: Ty<'ctx>,
-    span: Span,
+    pub ty: Ty<'ctx>,
+    pub span: Span,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FnDef<'ctx> {
-    name: Ident,
-    params: Vec<(Ident, Type<'ctx>)>,
-    return_ty: Type<'ctx>,
-    body: Vec<Expr<'ctx>>,
+    pub name: Ident,
+    pub params: Vec<(Ident, Type<'ctx>)>,
+    pub return_ty: Type<'ctx>,
+    pub body: Vec<Expr<'ctx>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Expr<'ctx> {
-    span: Span,
-    kind: ExprKind<'ctx>,
-    ty: Ty<'ctx>,
+    pub span: Span,
+    pub kind: ExprKind<'ctx>,
+    pub ty: Ty<'ctx>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -287,13 +319,13 @@ pub enum ExprKind<'ctx> {
     },
 }
 
-type Block<'ctx> = Vec<Expr<'ctx>>;
+pub type Block<'ctx> = Vec<Expr<'ctx>>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Literal<'ctx> {
-    span: Span,
-    kind: LiteralKind,
-    ty: Ty<'ctx>,
+    pub span: Span,
+    pub kind: LiteralKind,
+    pub ty: Ty<'ctx>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
