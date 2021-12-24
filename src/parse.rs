@@ -280,7 +280,7 @@ impl<'input> Parser<'input> {
                 kind: ExprKind::Binary(
                     op,
                     Box::new(Expr {
-                        kind: ExprKind::Ident(ident.clone()),
+                        kind: ExprKind::Ident(ident),
                         span: ident.span,
                     }),
                     Box::new(expr),

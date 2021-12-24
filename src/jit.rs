@@ -417,7 +417,7 @@ fn declare_variables_in_expr(
     if let ExprKind::Let(ident, typepath, _expr) = &expr.kind {
         let var = Variable::new(*index);
         if !variables.contains_key(&ident.name) {
-            variables.insert(ident.name.clone(), var);
+            variables.insert(ident.name, var);
             let typ =
                 resolve_typepath(typepath.as_ref().expect("type inference not supported yet"));
             builder.declare_var(var, typ);

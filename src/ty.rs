@@ -38,15 +38,16 @@ impl TyInterner {
                     TyS { kind: TyKind::Float(FloatTy::F64) },
                 ),
                 ("String".to_owned(), TyS { kind: TyKind::String }),
-                // TODO: This is evil
-                ("@unit".to_owned(), TyS { kind: TyKind::Unit }),
             ]),
         }
     }
 
-    // TODO: This is terrible
-    pub fn unit_ty_hack(&self) -> Ty<'_> {
-        &self.map["@unit"]
+    pub fn unit(&self) -> Ty<'_> {
+        &TyS { kind: TyKind::Unit }
+    }
+
+    pub fn bool(&self) -> Ty<'_> {
+        &TyS { kind: TyKind::Bool }
     }
 
     pub fn resolve(&self, path: &str) -> Option<Ty<'_>> {
@@ -64,6 +65,19 @@ impl TyInterner {
 #[derive(Debug, PartialEq, Eq)]
 pub struct TyS {
     kind: TyKind,
+}
+
+impl TyS {
+    pub fn is_numeric(&self) -> bool {
+        match self.kind {
+            TyKind::Int(_) | TyKind::UInt(_) | TyKind::Float(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_boolean(&self) -> bool {
+        self.kind == TyKind::Bool
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]

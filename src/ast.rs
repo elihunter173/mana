@@ -22,9 +22,9 @@ pub enum LiteralKind {
     String,
 }
 
-// TODO: Why do we own the string?
+// TODO: Move this to a different module?
 // TODO: Maybe use Spanned?
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Ident {
     pub span: Span,
     pub name: Symbol,

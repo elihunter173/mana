@@ -13,7 +13,8 @@ pub struct LoweringError<'ctx> {
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum LoweringErrorKind<'ctx> {
     UnknownType(TypePath),
-    TypeConflict { want: Type<'ctx>, got: Type<'ctx> },
+    TypeConflict { want: Ty<'ctx>, got: Ty<'ctx> },
+    InvalidType(Ty<'ctx>),
 }
 
 type LoweringResult<'ctx, T> = Result<T, LoweringError<'ctx>>;
@@ -43,23 +44,23 @@ impl LoweringContext {
         Ok(Type { ty, span: typepath.span })
     }
 
-    fn lower_fn_def(&self, fd: ast::FnDef) -> LoweringResult<FnDef> {
+    fn lower_fn_def(&self, fd: &ast::FnDef) -> LoweringResult<FnDef> {
         let mut params = Vec::with_capacity(fd.params.len());
-        for (ident, typepath) in fd.params.into_iter() {
-            params.push((ident, self.resolve_typepath(&typepath)?));
+        for (ident, typepath) in &fd.params {
+            params.push((*ident, self.resolve_typepath(&typepath)?));
         }
 
-        let return_ty = if let Some(typepath) = fd.return_typepath {
-            self.resolve_typepath(&typepath)?
+        let return_ty = if let Some(typepath) = &fd.return_typepath {
+            self.resolve_typepath(typepath)?
         } else {
             Type {
-                ty: self.ty_interner.unit_ty_hack(),
+                ty: self.ty_interner.unit(),
                 span: fd.name.span,
             }
         };
 
         let mut body = Vec::with_capacity(fd.body.len());
-        for expr in fd.body.into_iter() {
+        for expr in &fd.body {
             body.push(self.lower_expr(expr)?);
         }
 
@@ -71,42 +72,175 @@ impl LoweringContext {
         })
     }
 
-    fn lower_expr(&self, expr: ast::Expr) -> LoweringResult<Expr> {
-        match expr.kind {
+    fn lower_expr(&self, expr: &ast::Expr) -> LoweringResult<Expr> {
+        match &expr.kind {
             ast::ExprKind::Ident(_) => todo!("I need to respect lexical scope here"),
             ast::ExprKind::Literal(lit) => {
-                let span = lit.span;
                 let lowered = self.lower_literal(lit)?;
                 Ok(Expr {
-                    span,
+                    span: expr.span,
                     ty: lowered.ty,
                     kind: ExprKind::Literal(lowered),
                 })
             }
-            ast::ExprKind::Binary(op, left, right) => todo!(),
-            ast::ExprKind::Unary(_, _) => todo!(),
+            ast::ExprKind::Binary(op, left, right) => self.lower_binary(op, left, right),
+            ast::ExprKind::Unary(op, expr) => self.lower_unary(op, expr),
             ast::ExprKind::Let(_, _, _) => todo!(),
             ast::ExprKind::Set(_, _) => todo!(),
             ast::ExprKind::FnCall(_, _) => todo!(),
-            ast::ExprKind::Block(_) => todo!(),
+            ast::ExprKind::Block(block) => {
+                let (ty, block) = self.lower_block(block)?;
+                Ok(Expr {
+                    span: expr.span,
+                    kind: ExprKind::Block(block),
+                    ty,
+                })
+            }
             ast::ExprKind::If { cond, then_expr, else_expr } => todo!(),
         }
     }
 
     fn lower_binary(
         &self,
-        op: ast::BinOp,
-        left: ast::Expr,
-        right: ast::Expr,
-    ) -> (BinOp, Box<Expr<'_>>, Box<Expr<'_>>) {
+        op: &ast::BinOp,
+        left: &ast::Expr,
+        right: &ast::Expr,
+    ) -> LoweringResult<Expr> {
+        let op = match op {
+            ast::BinOp::Mul => BinOp::Mul,
+            ast::BinOp::Div => BinOp::Div,
+            ast::BinOp::Add => BinOp::Add,
+            ast::BinOp::Sub => BinOp::Sub,
+            ast::BinOp::Eq => BinOp::Eq,
+            ast::BinOp::Neq => BinOp::Neq,
+            ast::BinOp::Lt => BinOp::Lt,
+            ast::BinOp::Leq => BinOp::Leq,
+            ast::BinOp::Gt => BinOp::Gt,
+            ast::BinOp::Geq => BinOp::Geq,
+            ast::BinOp::Land => BinOp::Land,
+            ast::BinOp::Lor => BinOp::Lor,
+        };
+
+        let left = self.lower_expr(left)?;
+        let right = self.lower_expr(right)?;
+
+        // Type check
+        let ty = match op {
+            BinOp::Mul | BinOp::Div | BinOp::Add | BinOp::Sub => {
+                // TODO: Eventually this should use our function call machinery
+                if !left.ty.is_numeric() {
+                    return Err(LoweringError {
+                        kind: LoweringErrorKind::InvalidType(left.ty),
+                        span: left.span,
+                    });
+                }
+                if !right.ty.is_numeric() {
+                    return Err(LoweringError {
+                        kind: LoweringErrorKind::InvalidType(right.ty),
+                        span: right.span,
+                    });
+                }
+                if left.ty != right.ty {
+                    return Err(LoweringError {
+                        kind: LoweringErrorKind::TypeConflict { want: left.ty, got: right.ty },
+                        span: right.span,
+                    });
+                }
+
+                left.ty
+            }
+
+            BinOp::Eq | BinOp::Neq => {
+                if left.ty != right.ty {
+                    return Err(LoweringError {
+                        kind: LoweringErrorKind::TypeConflict { want: left.ty, got: right.ty },
+                        span: right.span,
+                    });
+                }
+
+                self.ty_interner.bool()
+            }
+
+            BinOp::Lt | BinOp::Leq | BinOp::Gt | BinOp::Geq => {
+                if !left.ty.is_numeric() {
+                    return Err(LoweringError {
+                        kind: LoweringErrorKind::InvalidType(left.ty),
+                        span: left.span,
+                    });
+                }
+                if !right.ty.is_numeric() {
+                    return Err(LoweringError {
+                        kind: LoweringErrorKind::InvalidType(right.ty),
+                        span: right.span,
+                    });
+                }
+                if left.ty != right.ty {
+                    return Err(LoweringError {
+                        kind: LoweringErrorKind::TypeConflict { want: left.ty, got: right.ty },
+                        span: right.span,
+                    });
+                }
+
+                self.ty_interner.bool()
+            }
+
+            BinOp::Land | BinOp::Lor => {
+                if !left.ty.is_boolean() {
+                    return Err(LoweringError {
+                        kind: LoweringErrorKind::InvalidType(left.ty),
+                        span: left.span,
+                    });
+                }
+                if !right.ty.is_boolean() {
+                    return Err(LoweringError {
+                        kind: LoweringErrorKind::InvalidType(right.ty),
+                        span: right.span,
+                    });
+                }
+
+                left.ty
+            }
+        };
+
+        Ok(Expr {
+            span: (left.span.0, right.span.1),
+            kind: ExprKind::Binary(op, Box::new(left), Box::new(right)),
+            ty,
+        })
+    }
+
+    fn lower_unary(&self, op: &ast::UnaryOp, expr: &ast::Expr) -> LoweringResult<Expr> {
+        let op = match op {
+            ast::UnaryOp::Neg => UnaryOp::Neg,
+        };
+
+        let expr = self.lower_expr(expr)?;
+
+        let ty = match op {
+            UnaryOp::Neg => {
+                if !expr.ty.is_numeric() {
+                    return Err(LoweringError {
+                        kind: LoweringErrorKind::InvalidType(expr.ty),
+                        span: expr.span,
+                    });
+                }
+
+                expr.ty
+            }
+        };
+
+        Ok(Expr {
+            span: expr.span,
+            kind: ExprKind::Unary(op, Box::new(expr)),
+            ty,
+        })
+    }
+
+    fn lower_literal(&self, lit: &ast::Literal) -> LoweringResult<Literal> {
         todo!()
     }
 
-    fn lower_literal(&self, lit: ast::Literal) -> LoweringResult<Literal> {
-        todo!()
-    }
-
-    fn lower_block(&self, block: ast::Block) -> LoweringResult<Literal> {
+    fn lower_block(&self, block: &ast::Block) -> LoweringResult<(Ty, Vec<Expr>)> {
         todo!()
     }
 }
@@ -140,11 +274,11 @@ pub enum ExprKind<'ctx> {
     Binary(BinOp, Box<Expr<'ctx>>, Box<Expr<'ctx>>),
     Unary(UnaryOp, Box<Expr<'ctx>>),
 
-    Let(Ident, Option<TypePath>, Box<Expr<'ctx>>),
+    Let(Ident, Type<'ctx>, Box<Expr<'ctx>>),
     Set(Ident, Box<Expr<'ctx>>),
 
     FnCall(Ident, Vec<Expr<'ctx>>),
-    Block(Vec<Expr<'ctx>>),
+    Block(Block<'ctx>),
     If {
         cond: Box<Expr<'ctx>>,
         // TODO: Maybe make this a Block type?
@@ -152,6 +286,8 @@ pub enum ExprKind<'ctx> {
         else_expr: Option<Box<Expr<'ctx>>>,
     },
 }
+
+type Block<'ctx> = Vec<Expr<'ctx>>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Literal<'ctx> {
@@ -176,12 +312,12 @@ pub enum BinOp {
     Sub,
     Eq,
     Neq,
-    Land,
-    Lor,
     Lt,
     Leq,
     Gt,
     Geq,
+    Land,
+    Lor,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
