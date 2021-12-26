@@ -488,68 +488,33 @@ fn parse_string(input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use crate::intern::Symbol;
+
     use super::*;
 
-    use matches::assert_matches;
-
-    // These are a macros rather than a function because the return value is really hairy
-    fn parser(code: &str) -> Parser {
-        Parser::new(code)
+    fn run_parser<T: 'static>(
+        code: &str,
+        // TODO: Figure out why Parser::X doesn't work
+        node: impl FnOnce(&mut Parser) -> T,
+    ) -> (T, impl FnMut(&str) -> Symbol) {
+        let mut symbols = SymbolInterner::new();
+        let mut parser = Parser::new(code, &mut symbols);
+        let rtn = node(&mut parser);
+        (rtn, move |string: &str| symbols.get_or_intern(string))
     }
-
-    // TODO: Figure out how to rewrite these
-    // macro_rules! test_literals {
-    //     ($( ($test_name:ident, $code:literal, $val:expr$(,)?) ),* $(,)?) => {$(
-    //         #[test]
-    //         fn $test_name() {
-    //             let mut parser = parser($code);
-    //             let want = Ok(Literal { span: (0, $code.len()), kind: $val });
-    //             assert_eq!(parser.lit(), want);
-    //             assert!(parser.finished());
-    //         }
-    //     )*};
-    // }
-
-    // test_literals! {
-    //     (bool_true, "true", LiteralKind::Bool(true)),
-    //     (bool_false, "false", LiteralKind::Bool(false)),
-
-    //     (int, "1", LiteralKind::Int(1)),
-    //     (int_zero, "0", LiteralKind::Int(0)),
-    //     (int_underscore, "1_000", LiteralKind::Int(1_000)),
-    //     (int_hex, "0xDEADbeef", LiteralKind::Int(0xDEADBEEF)),
-    //     (int_hex_underscore, "0x__123__abc_", LiteralKind::Int(0x123_abc)),
-    //     (int_oct, "0o76543210", LiteralKind::Int(0o76543210)),
-    //     (int_oct_underscore, "0o100_644", LiteralKind::Int(0o100_644)),
-    //     (int_bin, "0b0101", LiteralKind::Int(0b0101)),
-    //     (int_bin_underscore, "0b0101_1111", LiteralKind::Int(0b0101_1111)),
-
-    //     (float, "1.0", LiteralKind::Float(1.0)),
-    //     (float_underscore, "1_000.0", LiteralKind::Float(1_000.0)),
-    //     (float_e, "1e-06", LiteralKind::Float(1e-06)),
-    //     (float_e_cap, "1E-06", LiteralKind::Float(1E-06)),
-    //     (float_e_underscore, "1_000.123_456e+3", LiteralKind::Float(1_000.123_456e+3)),
-
-    //     (str_basic, r#""Hello, World!""#, LiteralKind::String("Hello, World!".to_owned())),
-    //     (
-    //         str_escape,
-    //         r#""The cowboy said \"Howdy!\" and then walked away""#,
-    //         LiteralKind::String(r#"The cowboy said "Howdy!" and then walked away"#.to_owned()),
-    //     ),
-    // }
 
     #[test]
     fn typepath() {
-        let mut parser = parser("Foo.Bar");
+        let (got, mut sym) = run_parser("Foo.Bar", |p| p.typepath());
+
         let want = Ok(TypePath {
             path: vec![
-                Ident { name: "Foo".to_owned(), span: (0, 3) },
-                Ident { name: "Bar".to_owned(), span: (4, 7) },
+                Ident { name: sym("Foo"), span: (0, 3) },
+                Ident { name: sym("Bar"), span: (4, 7) },
             ],
             span: (0, 7),
         });
-        assert_eq!(parser.typepath(), want);
-        assert!(parser.finished());
+        assert_eq!(got, want);
     }
 
     #[test]
@@ -564,21 +529,19 @@ mod tests {
             }
         }
 
-        let mut parser = parser("(true and false) or true");
-        let expr = parser.expr().unwrap();
+        let (expr, _) = run_parser("(true and false) or true", |p| p.expr());
+        let expr = expr.expect("parse failed");
         assert_eq!(expr.span, (0, 24));
         let (left, _right) = expect_op(BinOp::Lor, &expr);
         assert_eq!(left.span, (0, 16));
         expect_op(BinOp::Land, &left);
-
-        assert!(parser.finished());
     }
 
     #[test]
     #[ignore = "I'm not sure this is what I want"]
     fn logical_same_level() {
-        let mut parser = parser("true and false or true");
-        assert_matches!(parser.expr(), Err(_));
+        let (got, _) = run_parser("true and false or true", |p| p.expr());
+        assert!(got.is_err());
     }
 
     #[test]
@@ -593,9 +556,8 @@ mod tests {
             }
         }
 
-        let mut parser = parser("1 + 2 * 3 / (4 - 5)");
-
-        let expr = parser.expr().unwrap();
+        let (expr, _) = run_parser("1 + 2 * 3 / (4 - 5)", |p| p.expr());
+        let expr = expr.expect("parse failed");
         assert_eq!(expr.span, (0, 19));
         let (_left, right) = expect_op(BinOp::Add, &expr);
         assert_eq!(right.span, (4, 19));
@@ -603,13 +565,12 @@ mod tests {
         expect_op(BinOp::Mul, left);
         assert_eq!(right.span, (12, 19));
         expect_op(BinOp::Sub, &right);
-
-        assert!(parser.finished());
     }
 
     #[test]
     fn fn_calls() {
-        let mut parser = parser("foo(n, \"bar\") + 1");
+        let (got, mut sym) = run_parser("foo(n, \"bar\") + 1", |p| p.expr());
+
         let want = Ok(Expr {
             span: (0, 17),
             kind: ExprKind::Binary(
@@ -617,17 +578,17 @@ mod tests {
                 Box::new(Expr {
                     span: (0, 13),
                     kind: ExprKind::FnCall(
-                        Ident { span: (0, 3), name: "foo".to_owned() },
+                        Ident { span: (0, 3), name: sym("foo") },
                         vec![
                             Expr {
                                 span: (4, 5),
-                                kind: ExprKind::Ident(Ident { span: (4, 5), name: "n".to_owned() }),
+                                kind: ExprKind::Ident(Ident { span: (4, 5), name: sym("n") }),
                             },
                             Expr {
                                 span: (7, 12),
                                 kind: ExprKind::Literal(Literal {
                                     span: (7, 12),
-                                    kind: LiteralKind::String,
+                                    kind: LiteralKind::String(sym("bar")),
                                 }),
                             },
                         ],
@@ -637,45 +598,40 @@ mod tests {
                     span: (16, 17),
                     kind: ExprKind::Literal(Literal {
                         span: (16, 17),
-                        kind: LiteralKind::Int,
+                        kind: LiteralKind::Int(1),
                     }),
                 }),
             ),
         });
-        assert_eq!(parser.expr(), want);
-        assert!(parser.finished());
+        assert_eq!(got, want);
     }
 
     #[test]
     fn test_fn_def() {
-        let mut parser = parser(
-            "
+        let code = "
 fn the_answer(): UInt {
     42
-}",
-        );
+}";
+        let (got, mut sym) = run_parser(code, |p| p.item());
+
         let want = Ok(Item::FnDef(FnDef {
             name: Ident {
-                name: "the_answer".to_owned(),
+                name: sym("the_answer"),
                 span: (4, 14),
             },
             params: vec![],
             return_typepath: Some(TypePath {
-                path: vec![Ident {
-                    name: "UInt".to_owned(),
-                    span: (18, 22),
-                }],
+                path: vec![Ident { name: sym("UInt"), span: (18, 22) }],
                 span: (18, 22),
             }),
             body: vec![Expr {
                 kind: ExprKind::Literal(Literal {
-                    kind: LiteralKind::Int,
+                    kind: LiteralKind::Int(42),
                     span: (29, 31),
                 }),
                 span: (29, 31),
             }],
         }));
-        assert_eq!(parser.item(), want);
-        assert!(parser.finished());
+        assert_eq!(got, want);
     }
 }
