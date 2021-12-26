@@ -3,7 +3,6 @@ use crate::intern::Symbol;
 pub type Span = (usize, usize);
 
 // TODO: Make a HasSpan trait? Typepath can calculate its own span
-// TODO: Maybe I should create a Spanned helper struct?
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Spanned<T> {
@@ -18,13 +17,11 @@ pub type Literal = Spanned<LiteralKind>;
 pub enum LiteralKind {
     Bool(bool),
     Int(u128),
-    // TODO: Maybe use a symbol?
     Float(Symbol),
     String(Symbol),
 }
 
 // TODO: Move this to a different module?
-// TODO: Maybe use Spanned?
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Ident {
     pub span: Span,

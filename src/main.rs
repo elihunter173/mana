@@ -159,7 +159,6 @@ fn repl() {
                             println!("Error: Did not fully consume output");
                         }
                     }
-                    // TODO: Do diagnostic
                     Err(e) => crate::diagnostic::emit(
                         &codespan_reporting::files::SimpleFile::new(&filename, &line),
                         &crate::diagnostic::diagnostic_from_parse_error(&e),

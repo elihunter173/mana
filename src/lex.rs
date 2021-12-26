@@ -4,8 +4,6 @@ use logos::{Lexer as LogosLexer, Logos};
 
 pub type Loc = usize;
 
-// TODO: I should probably make this a token kind? How do I want to handle identifiers, literals,
-// and other data-holding tokens?
 #[derive(Logos, Copy, Clone, Debug, Eq, PartialEq)]
 pub enum TokenKind {
     // Punctuation
@@ -210,7 +208,6 @@ impl fmt::Display for TokenKind {
             TokenKind::True => "true",
             TokenKind::False => "false",
 
-            // TODO: The String is malformatted
             TokenKind::Ident => "identifier",
             TokenKind::ClosureArg => "closure parameter",
             TokenKind::String => "string",
@@ -227,7 +224,6 @@ impl fmt::Display for TokenKind {
     }
 }
 
-// TODO: Associate lifetime of source code I think
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Token {
     pub kind: TokenKind,
@@ -308,7 +304,6 @@ impl<'input> Iterator for Lexer<'input> {
                 } else {
                     // Stash away next to return later
                     self.next = next;
-                    // TODO: Maybe I should just have a semicolon?
                     Some(Token { kind: TokenKind::Semicolon, span })
                 }
             }
@@ -468,7 +463,6 @@ mod test {
         assert_lex("\"Hello, World!\"", &[(0, TokenKind::String, 15)]);
     }
 
-    // TODO: See https://github.com/maciejhirsz/logos/issues/203
     #[test]
     fn test_int_hex() {
         assert_lex("0xDEADbeef", &[(0, TokenKind::IntHex, 10)]);

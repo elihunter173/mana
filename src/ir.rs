@@ -102,7 +102,7 @@ impl<'ctx> LoweringContext<'ctx> {
                 expr.span,
                 cond,
                 then_expr,
-                else_expr.as_ref().expect("todo!"),
+                else_expr.as_ref().expect("TODO: support empty else"),
             ),
         }
     }
@@ -269,7 +269,6 @@ impl<'ctx> LoweringContext<'ctx> {
     }
 
     fn lower_literal(&self, lit: &ast::Literal) -> LoweringResult<Literal<'ctx>> {
-        // TODO: Maybe consider the literal a bit more
         let (kind, ty) = match lit.kind {
             ast::LiteralKind::Bool(val) => (LiteralKind::Bool(val), self.ty_interner.bool()),
             ast::LiteralKind::Int(val) => (
@@ -396,7 +395,6 @@ pub struct Literal<'ctx> {
 pub enum LiteralKind {
     Bool(bool),
     Int(u128),
-    // TODO: Maybe use a symbol?
     Float(Symbol),
     String(Symbol),
 }

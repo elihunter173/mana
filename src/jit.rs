@@ -11,9 +11,9 @@ use crate::{
 };
 
 fn convert_type(ty: Ty<'_>) -> types::Type {
+    // TODO: How do I determine the "native size" in general?
     match &ty.kind {
         TyKind::Int(int_ty) => match int_ty {
-            // TODO: How do I determine this in general?
             ty::IntTy::ISize => cranelift::codegen::ir::types::I64,
             ty::IntTy::I8 => cranelift::codegen::ir::types::I8,
             ty::IntTy::I16 => cranelift::codegen::ir::types::I16,
@@ -21,7 +21,6 @@ fn convert_type(ty: Ty<'_>) -> types::Type {
             ty::IntTy::I64 => cranelift::codegen::ir::types::I64,
         },
         TyKind::UInt(uint_ty) => match uint_ty {
-            // TODO: How do I determine this in general?
             ty::UIntTy::USize => cranelift::codegen::ir::types::I64,
             ty::UIntTy::U8 => cranelift::codegen::ir::types::I8,
             ty::UIntTy::U16 => cranelift::codegen::ir::types::I16,
@@ -73,15 +72,11 @@ impl<'ctx> JIT<'ctx> {
         }
     }
 
-    // TODO: Make this accept an AST probably
     pub fn compile(&mut self, func: &ir::FnDef) -> anyhow::Result<*const u8> {
         self.translate(func)?;
 
         // Next, declare the function to jit. Functions must be declared before they can be called,
         // or defined.
-        //
-        // TODO: This may be an area where the API should be streamlined; should we have a version
-        // of `declare_function` that automatically declares the function?
         let func_name = self.symbols.resolve(&func.name.name);
         let id = self
             .module
@@ -130,7 +125,6 @@ impl<'ctx> JIT<'ctx> {
         self.data_ctx.clear();
         self.module.finalize_definitions();
         let buffer = self.module.get_finalized_data(id);
-        // TODO: Can we move the unsafe into cranelift?
         Ok(unsafe { slice::from_raw_parts(buffer.0, buffer.1) })
     }
 
@@ -154,8 +148,6 @@ impl<'ctx> JIT<'ctx> {
 
         // Since this is the entry block, add block parameters corresponding to the function's
         // parameters.
-        //
-        // TODO: Streamline the API here.
         builder.append_block_params_for_function_params(entry_block);
 
         // Tell the builder to emit code in this block.
@@ -202,7 +194,7 @@ impl<'a> FunctionTranslator<'a> {
                 let lhs = self.translate_expr(lhs.as_ref());
                 let rhs = self.translate_expr(rhs.as_ref());
                 let b = self.builder.ins();
-                // TODO: Use better types. Need more than just AST
+                // TODO: Use better types
                 match op {
                     BinOp::Add => b.iadd(lhs, rhs),
                     BinOp::Sub => b.isub(lhs, rhs),
@@ -285,12 +277,6 @@ impl<'a> FunctionTranslator<'a> {
             }
             LiteralKind::String(_) => todo!("Gotta figure out how data and pointers work"),
         }
-        // ExprKind::Literal(Literal { kind: LiteralKind::Float(imm), .. }) => {
-        //     self.builder.ins().f64const(*imm)
-        // }
-        // ExprKind::Literal(Literal { kind: LiteralKind::Int(imm), .. }) => {
-        //     self.builder.ins().iconst(ASSUMED_TYPE, *imm as i64)
-        // }
     }
 
     fn translate_if_else(
@@ -417,7 +403,6 @@ impl<'a> FunctionTranslator<'a> {
     //     // For simplicity for now, just make all calls return a single I64.
     //     sig.returns.push(AbiParam::new(self.typ));
 
-    //     // TODO: Streamline the API here?
     //     let callee = self
     //         .module
     //         .declare_function(&name, Linkage::Import, &sig)

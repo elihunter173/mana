@@ -15,8 +15,6 @@ pub struct Parsed {
 pub trait Program: salsa::Database {
     // TODO: How do we pipe the source code through well?
     // TODO: Probably want to use Arc
-    // TODO: Salsa and the way I do spans don't get along well I don't think. The reason is because
-    // I keep spans on everything and so the AST will completely change if anything changes
 
     /// The source code to parse
     #[salsa::input]

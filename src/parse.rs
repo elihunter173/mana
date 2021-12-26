@@ -86,7 +86,6 @@ impl<'input> Parser<'input> {
             self.lexer.next();
             tok
         } else {
-            // TODO: Make delimited helper
             parsed.push(parser(self)?);
             while self.maybe_token(delimiter).is_some() {
                 // This allows for trailing delimiters
@@ -256,7 +255,6 @@ impl<'input> Parser<'input> {
     pub fn set(&mut self) -> ParseResult<Expr> {
         let ident = self.ident()?;
 
-        // TODO: This is gross
         let assign_op = self.try_peek()?;
         let op = match assign_op.kind {
             TokenKind::Equals => None,
@@ -416,8 +414,7 @@ impl<'input> Parser<'input> {
         let head = self.ident()?;
         let mut span = head.span;
         let mut path = vec![head];
-        while let Some(Token { kind: TokenKind::Dot, .. }) = self.lexer.peek() {
-            self.lexer.next();
+        while let Some(_dot) = self.maybe_token(TokenKind::Dot) {
             let next = self.ident()?;
             span.1 = next.span.1;
             path.push(next);
@@ -436,9 +433,9 @@ impl<'input> Parser<'input> {
             TokenKind::IntBin => LiteralKind::Int(parse_int(&src[2..], 2)),
             TokenKind::Float => LiteralKind::Float(self.symbols.get_or_intern(src)),
             TokenKind::String => {
-                // TODO: Move this to Literal?
+                // TODO: Make this independent
                 // Unescape quotes
-                let val = src[1..src.len() - 1].replace("\\\"", "\"");
+                let val = parse_string(src);
                 LiteralKind::String(self.symbols.get_or_intern(&val))
             }
             TokenKind::True => LiteralKind::Bool(true),
@@ -456,9 +453,8 @@ impl<'input> Parser<'input> {
     }
 }
 
-// TODO: Return Results for these wrater tha panicing
+// TODO: Return Results for these wrater tha panicking
 fn parse_int(digits: &str, radix: u32) -> u128 {
-    // TODO: Maybe optimize this?
     let mut num = 0;
     for b in digits.bytes() {
         let d = match b {
