@@ -75,7 +75,7 @@ impl<'ctx> JIT<'ctx> {
 
     // TODO: Make this accept an AST probably
     pub fn compile(&mut self, func: &ir::FnDef) -> anyhow::Result<*const u8> {
-        self.translate(&func)?;
+        self.translate(func)?;
 
         // Next, declare the function to jit. Functions must be declared before they can be called,
         // or defined.

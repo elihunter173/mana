@@ -34,13 +34,10 @@ impl<'ctx> LoweringContext<'ctx> {
             .map(|ident| self.symbol_interner.resolve(&ident.name))
             .intersperse(".")
             .collect::<String>();
-        let ty = self
-            .ty_interner
-            .resolve(&path)
-            .ok_or_else(|| LoweringError {
-                kind: LoweringErrorKind::UnknownType(path),
-                span: typepath.span,
-            })?;
+        let ty = self.ty_interner.resolve(&path).ok_or(LoweringError {
+            kind: LoweringErrorKind::UnknownType(path),
+            span: typepath.span,
+        })?;
         Ok(Type { ty, span: typepath.span })
     }
 
@@ -49,7 +46,7 @@ impl<'ctx> LoweringContext<'ctx> {
     pub fn lower_fn_def(&self, fd: &ast::FnDef) -> LoweringResult<FnDef<'ctx>> {
         let mut params = Vec::with_capacity(fd.params.len());
         for (ident, typepath) in &fd.params {
-            params.push((*ident, self.resolve_typepath(&typepath)?));
+            params.push((*ident, self.resolve_typepath(typepath)?));
         }
 
         let return_ty = if let Some(typepath) = &fd.return_typepath {
