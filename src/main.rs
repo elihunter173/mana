@@ -14,6 +14,7 @@ mod ir;
 mod jit;
 mod lex;
 mod parse;
+mod resolve;
 mod ty;
 // TODO: Re-enable salsa
 // mod queries;
@@ -90,7 +91,7 @@ fn run(path: &str) {
     let code = fs::read_to_string(path).unwrap();
 
     let mut symbol_interner = intern::SymbolInterner::new();
-    let mut ty_interner = ty::TyResolver::with_primitives(&mut symbol_interner);
+    let mut resolver = resolve::Resolver::with_primitives(&mut symbol_interner);
 
     let mut parser = crate::parse::Parser::new(&code, &mut symbol_interner);
 
@@ -113,7 +114,7 @@ fn run(path: &str) {
     };
 
     let lowering_ctx = ir::LoweringContext {
-        ty_interner: &mut ty_interner,
+        ty_interner: &mut resolver,
         symbol_interner: &symbol_interner,
     };
     let func = match lowering_ctx.lower_fn_def(&func) {

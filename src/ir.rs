@@ -1,7 +1,8 @@
 use crate::{
     ast::{self, Ident, Span, TypePath},
     intern::{Symbol, SymbolInterner},
-    ty::{ManaPath, Ty, TyResolver},
+    resolve::{ManaObject, ManaPath, Resolver},
+    ty::Ty,
 };
 
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -20,7 +21,7 @@ pub enum LoweringErrorKind<'ctx> {
 type LoweringResult<'ctx, T> = Result<T, LoweringError<'ctx>>;
 
 pub struct LoweringContext<'ctx> {
-    pub ty_interner: &'ctx TyResolver,
+    pub ty_interner: &'ctx Resolver,
     pub symbol_interner: &'ctx SymbolInterner,
 }
 
@@ -31,10 +32,19 @@ impl<'ctx> LoweringContext<'ctx> {
         let path = ManaPath {
             idents: typepath.path.iter().map(|ident| ident.name).collect(),
         };
-        let ty = self.ty_interner.resolve(&path).ok_or(LoweringError {
+        let obj = self.ty_interner.resolve(&path).ok_or(LoweringError {
             kind: LoweringErrorKind::UnknownType("TODO".to_owned()),
             span: typepath.span,
         })?;
+        let ty = match obj {
+            ManaObject::Type(ty) => ty,
+            _ => {
+                return Err(LoweringError {
+                    kind: LoweringErrorKind::UnknownType("TODO".to_owned()),
+                    span: typepath.span,
+                })
+            }
+        };
         Ok(Type { ty, span: typepath.span })
     }
 
