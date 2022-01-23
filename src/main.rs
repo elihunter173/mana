@@ -1,4 +1,5 @@
 #![feature(map_try_insert)]
+#![feature(hash_set_entry)]
 #![feature(iter_intersperse)]
 // I'm working on things and those errors are noisy
 #![allow(dead_code)]
@@ -88,8 +89,8 @@ fn lex(path: &str) {
 fn run(path: &str) {
     let code = fs::read_to_string(path).unwrap();
 
-    let mut ty_interner = ty::TyInterner::with_primitives();
     let mut symbol_interner = intern::SymbolInterner::new();
+    let mut ty_interner = ty::TyResolver::with_primitives(&mut symbol_interner);
 
     let mut parser = crate::parse::Parser::new(&code, &mut symbol_interner);
 

@@ -2,67 +2,86 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+use crate::intern::{Symbol, SymbolInterner};
+
 pub type Ty<'ctx> = &'ctx TyS;
 
-#[derive(Debug)]
-pub struct TyInterner {
-    map: HashMap<String, TyS>,
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ManaPath {
+    // TODO: This must be non-empty
+    pub idents: Vec<Symbol>,
 }
 
-impl TyInterner {
-    pub fn with_primitives() -> Self {
+#[derive(Debug)]
+pub struct TyResolver {
+    map: HashMap<ManaPath, TyS>,
+}
+
+impl TyResolver {
+    pub fn with_primitives(interner: &mut SymbolInterner) -> Self {
+        let mut path = |s: &str| ManaPath {
+            idents: Vec::from([interner.get_or_intern(s)]),
+        };
+
         Self {
             map: HashMap::from([
-                ("Bool".to_owned(), TyS { kind: TyKind::Bool }),
-                ("Int".to_owned(), TyS { kind: TyKind::Int(IntTy::I32) }),
-                ("Int8".to_owned(), TyS { kind: TyKind::Int(IntTy::I8) }),
-                ("Int16".to_owned(), TyS { kind: TyKind::Int(IntTy::I16) }),
-                ("Int32".to_owned(), TyS { kind: TyKind::Int(IntTy::I32) }),
-                ("Int64".to_owned(), TyS { kind: TyKind::Int(IntTy::I64) }),
-                ("ISize".to_owned(), TyS { kind: TyKind::Int(IntTy::ISize) }),
-                ("UInt".to_owned(), TyS { kind: TyKind::UInt(UIntTy::U32) }),
-                ("UInt8".to_owned(), TyS { kind: TyKind::UInt(UIntTy::U8) }),
-                ("UInt16".to_owned(), TyS { kind: TyKind::UInt(UIntTy::U16) }),
-                ("UInt32".to_owned(), TyS { kind: TyKind::UInt(UIntTy::U32) }),
-                ("UInt64".to_owned(), TyS { kind: TyKind::UInt(UIntTy::U64) }),
-                (
-                    "USize".to_owned(),
-                    TyS { kind: TyKind::UInt(UIntTy::USize) },
-                ),
-                (
-                    "Float32".to_owned(),
-                    TyS { kind: TyKind::Float(FloatTy::F32) },
-                ),
-                (
-                    "Float64".to_owned(),
-                    TyS { kind: TyKind::Float(FloatTy::F64) },
-                ),
-                ("String".to_owned(), TyS { kind: TyKind::String }),
+                (path("Bool"), TyS { kind: TyKind::Bool }),
+                (path("Int"), TyS { kind: TyKind::Int(DEFAULT_INT) }),
+                (path("Int8"), TyS { kind: TyKind::Int(IntTy::I8) }),
+                (path("Int16"), TyS { kind: TyKind::Int(IntTy::I16) }),
+                (path("Int32"), TyS { kind: TyKind::Int(IntTy::I32) }),
+                (path("Int64"), TyS { kind: TyKind::Int(IntTy::I64) }),
+                (path("ISize"), TyS { kind: TyKind::Int(IntTy::ISize) }),
+                (path("UInt"), TyS { kind: TyKind::UInt(DEFAULT_UINT) }),
+                (path("UInt8"), TyS { kind: TyKind::UInt(UIntTy::U8) }),
+                (path("UInt16"), TyS { kind: TyKind::UInt(UIntTy::U16) }),
+                (path("UInt32"), TyS { kind: TyKind::UInt(UIntTy::U32) }),
+                (path("UInt64"), TyS { kind: TyKind::UInt(UIntTy::U64) }),
+                (path("USize"), TyS { kind: TyKind::UInt(UIntTy::USize) }),
+                (path("Float32"), TyS { kind: TyKind::Float(FloatTy::F32) }),
+                (path("Float64"), TyS { kind: TyKind::Float(FloatTy::F64) }),
+                (path("String"), TyS { kind: TyKind::String }),
             ]),
         }
-    }
-
-    pub fn unit(&self) -> Ty<'_> {
-        &TyS { kind: TyKind::Unit }
     }
 
     pub fn bool(&self) -> Ty<'_> {
         &TyS { kind: TyKind::Bool }
     }
 
-    pub fn resolve(&self, path: &str) -> Option<Ty<'_>> {
+    pub fn unit(&self) -> Ty<'_> {
+        &TyS { kind: TyKind::Unit }
+    }
+
+    pub fn int(&self) -> Ty<'_> {
+        &TyS { kind: TyKind::Int(DEFAULT_INT) }
+    }
+
+    pub fn uint(&self) -> Ty<'_> {
+        &TyS { kind: TyKind::UInt(DEFAULT_UINT) }
+    }
+
+    pub fn float(&self) -> Ty<'_> {
+        &TyS { kind: TyKind::Float(DEFAULT_FLOAT) }
+    }
+
+    pub fn string(&self) -> Ty<'_> {
+        &TyS { kind: TyKind::String }
+    }
+
+    pub fn resolve(&self, path: &ManaPath) -> Option<Ty<'_>> {
         self.map.get(path)
     }
 
-    pub fn define(&mut self, path: &str, ty: TyS) -> Result<(), ()> {
-        match self.map.try_insert(path.to_owned(), ty) {
+    pub fn define(&mut self, path: &ManaPath, ty: TyS) -> Result<(), ()> {
+        match self.map.try_insert(path.clone(), ty) {
             Ok(_) => Ok(()),
             Err(_) => Err(()),
         }
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct TyS {
     pub kind: TyKind,
 }
@@ -80,21 +99,25 @@ impl TyS {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub enum TyKind {
     Bool,
-    // TODO: This should definitely be a tuple, but I haven't implemented tuples yet
-    Unit,
     Int(IntTy),
     UInt(UIntTy),
     Float(FloatTy),
     String,
+    // TODO: This should be an empty tuple sometime
+    Unit,
     Tuple(Vec<TyS>),
     // Key must be unique
     Struct(BTreeMap<String, TyS>),
 }
 
-#[derive(Debug, PartialEq, Eq)]
+pub const DEFAULT_INT: IntTy = IntTy::I32;
+pub const DEFAULT_UINT: UIntTy = UIntTy::U32;
+pub const DEFAULT_FLOAT: FloatTy = FloatTy::F64;
+
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub enum IntTy {
     ISize,
     I8,
@@ -103,7 +126,7 @@ pub enum IntTy {
     I64,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub enum UIntTy {
     USize,
     U8,
@@ -112,7 +135,7 @@ pub enum UIntTy {
     U64,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub enum FloatTy {
     F32,
     F64,

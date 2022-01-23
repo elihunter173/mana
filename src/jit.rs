@@ -28,11 +28,11 @@ fn convert_type(ty: Ty<'_>) -> types::Type {
             ty::UIntTy::U64 => cranelift::codegen::ir::types::I64,
         },
         TyKind::Bool => cranelift::codegen::ir::types::B1,
-        TyKind::Unit => todo!(),
         TyKind::Float(float_ty) => match float_ty {
             ty::FloatTy::F32 => cranelift::codegen::ir::types::F32,
             ty::FloatTy::F64 => cranelift::codegen::ir::types::F64,
         },
+        TyKind::Unit => todo!(),
         TyKind::String => todo!(),
         TyKind::Tuple(_) => todo!(),
         TyKind::Struct(_) => todo!(),

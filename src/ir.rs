@@ -1,7 +1,7 @@
 use crate::{
     ast::{self, Ident, Span, TypePath},
     intern::{Symbol, SymbolInterner},
-    ty::{Ty, TyInterner},
+    ty::{ManaPath, Ty, TyResolver},
 };
 
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -20,7 +20,7 @@ pub enum LoweringErrorKind<'ctx> {
 type LoweringResult<'ctx, T> = Result<T, LoweringError<'ctx>>;
 
 pub struct LoweringContext<'ctx> {
-    pub ty_interner: &'ctx TyInterner,
+    pub ty_interner: &'ctx TyResolver,
     pub symbol_interner: &'ctx SymbolInterner,
 }
 
@@ -28,14 +28,11 @@ impl<'ctx> LoweringContext<'ctx> {
     fn resolve_typepath(&self, typepath: &TypePath) -> LoweringResult<Type<'ctx>> {
         // TODO: This is kinda silly, that we go from string to vec to string again. We could probably
         // just store TypePath as a string?
-        let path = typepath
-            .path
-            .iter()
-            .map(|ident| self.symbol_interner.resolve(&ident.name))
-            .intersperse(".")
-            .collect::<String>();
+        let path = ManaPath {
+            idents: typepath.path.iter().map(|ident| ident.name).collect(),
+        };
         let ty = self.ty_interner.resolve(&path).ok_or(LoweringError {
-            kind: LoweringErrorKind::UnknownType(path),
+            kind: LoweringErrorKind::UnknownType("TODO".to_owned()),
             span: typepath.span,
         })?;
         Ok(Type { ty, span: typepath.span })
@@ -263,7 +260,7 @@ impl<'ctx> LoweringContext<'ctx> {
 
         Ok(Expr {
             span,
-            ty: expr.ty,
+            ty: self.ty_interner.unit(),
             kind: ExprKind::Let(*ident, Box::new(expr)),
         })
     }
@@ -271,18 +268,9 @@ impl<'ctx> LoweringContext<'ctx> {
     fn lower_literal(&self, lit: &ast::Literal) -> LoweringResult<Literal<'ctx>> {
         let (kind, ty) = match lit.kind {
             ast::LiteralKind::Bool(val) => (LiteralKind::Bool(val), self.ty_interner.bool()),
-            ast::LiteralKind::Int(val) => (
-                LiteralKind::Int(val),
-                self.ty_interner.resolve("Int").unwrap(),
-            ),
-            ast::LiteralKind::Float(val) => (
-                LiteralKind::Float(val),
-                self.ty_interner.resolve("Float64").unwrap(),
-            ),
-            ast::LiteralKind::String(val) => (
-                LiteralKind::String(val),
-                self.ty_interner.resolve("String").unwrap(),
-            ),
+            ast::LiteralKind::Int(val) => (LiteralKind::Int(val), self.ty_interner.int()),
+            ast::LiteralKind::Float(val) => (LiteralKind::Float(val), self.ty_interner.float()),
+            ast::LiteralKind::String(val) => (LiteralKind::String(val), self.ty_interner.string()),
         };
         Ok(Literal { kind, ty, span: lit.span })
     }
