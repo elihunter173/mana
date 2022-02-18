@@ -10,32 +10,57 @@ use crate::{
     ty::{self, Ty, TyKind},
 };
 
-fn convert_type(ty: Ty<'_>) -> types::Type {
-    // TODO: How do I determine the "native size" in general?
-    match &ty.kind {
-        TyKind::Int(int_ty) => match int_ty {
-            ty::IntTy::ISize => cranelift::codegen::ir::types::I64,
-            ty::IntTy::I8 => cranelift::codegen::ir::types::I8,
-            ty::IntTy::I16 => cranelift::codegen::ir::types::I16,
-            ty::IntTy::I32 => cranelift::codegen::ir::types::I32,
-            ty::IntTy::I64 => cranelift::codegen::ir::types::I64,
-        },
-        TyKind::UInt(uint_ty) => match uint_ty {
-            ty::UIntTy::USize => cranelift::codegen::ir::types::I64,
-            ty::UIntTy::U8 => cranelift::codegen::ir::types::I8,
-            ty::UIntTy::U16 => cranelift::codegen::ir::types::I16,
-            ty::UIntTy::U32 => cranelift::codegen::ir::types::I32,
-            ty::UIntTy::U64 => cranelift::codegen::ir::types::I64,
-        },
-        TyKind::Bool => cranelift::codegen::ir::types::B1,
-        TyKind::Float(float_ty) => match float_ty {
-            ty::FloatTy::F32 => cranelift::codegen::ir::types::F32,
-            ty::FloatTy::F64 => cranelift::codegen::ir::types::F64,
-        },
-        TyKind::Unit => todo!(),
-        TyKind::String => todo!(),
-        TyKind::Tuple(_) => todo!(),
-        TyKind::Struct(_) => todo!(),
+// TODO: The *Description naming scheme kinda sucks
+
+// TODO: This could just be a Vec really
+struct TypeDescription(Vec<types::Type>);
+
+impl TypeDescription {
+    fn from_ty(ty: Ty<'_>) -> Self {
+        // TODO: How do I determine the "native size" in general?
+        match &ty.kind {
+            TyKind::Int(int_ty) => match int_ty {
+                ty::IntTy::ISize => Self(Vec::from([types::I64])),
+                ty::IntTy::I8 => Self(Vec::from([types::I8])),
+                ty::IntTy::I16 => Self(Vec::from([types::I16])),
+                ty::IntTy::I32 => Self(Vec::from([types::I32])),
+                ty::IntTy::I64 => Self(Vec::from([types::I64])),
+            },
+            TyKind::UInt(uint_ty) => match uint_ty {
+                ty::UIntTy::USize => Self(Vec::from([types::I64])),
+                ty::UIntTy::U8 => Self(Vec::from([types::I8])),
+                ty::UIntTy::U16 => Self(Vec::from([types::I16])),
+                ty::UIntTy::U32 => Self(Vec::from([types::I32])),
+                ty::UIntTy::U64 => Self(Vec::from([types::I64])),
+            },
+            TyKind::Bool => Self(Vec::from([types::B1])),
+            TyKind::Float(float_ty) => match float_ty {
+                ty::FloatTy::F32 => Self(Vec::from([types::F32])),
+                ty::FloatTy::F64 => Self(Vec::from([types::F64])),
+            },
+            TyKind::Unit => Self(Vec::new()),
+            TyKind::String => Self(Vec::from([types::R64, types::I64])),
+            TyKind::Tuple(_) => todo!(),
+            TyKind::Struct(_) => todo!(),
+        }
+    }
+
+    fn abi_params(&self) -> Vec<AbiParam> {
+        self.0.iter().map(|ty| AbiParam::new(*ty)).collect()
+    }
+
+    fn types(&self) -> &[types::Type] {
+        &self.0
+    }
+}
+
+struct VariableDescription(Vec<Variable>);
+
+struct ValueDescription(Vec<Value>);
+
+impl ValueDescription {
+    fn empty() -> Self {
+        Self(Vec::new())
     }
 }
 
@@ -87,14 +112,7 @@ impl<'ctx> JIT<'ctx> {
         // relocations to perform. Currently, jit cannot finish relocations until all functions to
         // be called are defined. For this toy demo for now, we'll just finalize the function
         // below.
-        self.module
-            .define_function(
-                id,
-                &mut self.ctx,
-                &mut codegen::binemit::NullTrapSink {},
-                &mut codegen::binemit::NullStackMapSink {},
-            )
-            .unwrap();
+        self.module.define_function(id, &mut self.ctx).unwrap();
 
         // Now that compilation is finished, we can clear out the context state.
         self.module.clear_context(&mut self.ctx);
@@ -131,14 +149,22 @@ impl<'ctx> JIT<'ctx> {
     // Translate from toy-language AST nodes into Cranelift IR.
     fn translate(&mut self, func: &ir::FnDef) -> anyhow::Result<()> {
         for (_name, typ) in &func.params {
-            let ty = convert_type(typ.ty);
-            self.ctx.func.signature.params.push(AbiParam::new(ty));
+            let type_desc = TypeDescription::from_ty(typ.ty);
+            self.ctx
+                .func
+                .signature
+                .params
+                .extend(type_desc.abi_params());
         }
 
         // Our toy language currently only supports one return value, though Cranelift is designed
         // to support more.
-        let ty = convert_type(func.return_ty.ty);
-        self.ctx.func.signature.returns.push(AbiParam::new(ty));
+        let type_desc = TypeDescription::from_ty(func.return_ty.ty);
+        self.ctx
+            .func
+            .signature
+            .returns
+            .extend(type_desc.abi_params());
 
         // Create the builder to build a function.
         let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
@@ -167,7 +193,7 @@ impl<'ctx> JIT<'ctx> {
         let return_value = trans.translate_block(func.return_ty.ty, &func.body);
 
         // Emit the return instruction.
-        trans.builder.ins().return_(&[return_value]);
+        trans.builder.ins().return_(&return_value.0);
 
         // Tell the builder we're done with this function.
         trans.builder.finalize();
@@ -178,7 +204,7 @@ impl<'ctx> JIT<'ctx> {
 /// A collection of state used for translating from toy-language AST nodes into Cranelift IR.
 struct FunctionTranslator<'parent> {
     builder: FunctionBuilder<'parent>,
-    variables: HashMap<Symbol, Variable>,
+    variables: HashMap<Symbol, VariableDescription>,
     module: &'parent mut JITModule,
 
     symbols: &'parent SymbolInterner,
@@ -187,54 +213,65 @@ struct FunctionTranslator<'parent> {
 impl<'a> FunctionTranslator<'a> {
     /// When you write out instructions in Cranelift, you get back `Value`s. You can then use these
     /// references in other instructions.
-    fn translate_expr(&mut self, expr: &Expr) -> Value {
+    fn translate_expr(&mut self, expr: &Expr) -> ValueDescription {
         match &expr.kind {
             ExprKind::Literal(lit) => self.translate_literal(lit),
             ExprKind::Binary(op, lhs, rhs) => {
-                let lhs = self.translate_expr(lhs.as_ref());
-                let rhs = self.translate_expr(rhs.as_ref());
-                let b = self.builder.ins();
-                // TODO: Use better types
-                match op {
-                    BinOp::Add => b.iadd(lhs, rhs),
-                    BinOp::Sub => b.isub(lhs, rhs),
-                    BinOp::Mul => b.imul(lhs, rhs),
-                    BinOp::Div => b.sdiv(lhs, rhs),
-                    BinOp::Eq => b.icmp(IntCC::Equal, lhs, rhs),
-                    BinOp::Neq => b.icmp(IntCC::NotEqual, lhs, rhs),
+                let lhs = self.translate_expr(lhs.as_ref()).0[0];
+                let rhs = self.translate_expr(rhs.as_ref()).0[0];
+                let ins = self.builder.ins();
+                let val = match op {
+                    // TODO: Figure out how addition works with types
+                    BinOp::Add => ins.iadd(lhs, rhs),
+                    BinOp::Sub => ins.isub(lhs, rhs),
+                    BinOp::Mul => ins.imul(lhs, rhs),
+                    BinOp::Div => ins.sdiv(lhs, rhs),
+                    BinOp::Eq => ins.icmp(IntCC::Equal, lhs, rhs),
+                    BinOp::Neq => ins.icmp(IntCC::NotEqual, lhs, rhs),
                     _ => unimplemented!(),
-                }
+                };
+                ValueDescription(Vec::from([val]))
             }
 
             // ExprKind::Call(name, args) => self.translate_call(name, args),
             // ExprKind::GlobalDataAddr(name) => self.translate_global_data_addr(name),
             ExprKind::Ident(ident) => {
                 // `use_var` is used to read the value of a variable.
-                let variable = self
+                let variable_desc = self
                     .variables
                     .get(&ident.name)
                     .expect("variable not defined");
-                self.builder.use_var(*variable)
+                ValueDescription(
+                    variable_desc
+                        .0
+                        .iter()
+                        .map(|var| self.builder.use_var(*var))
+                        .collect(),
+                )
             }
 
             ExprKind::Let(ident, expr) => {
-                let var = Variable::new(self.variables.len());
-                self.variables.insert(ident.name, var);
-                let ty = convert_type(expr.ty);
-                self.builder.declare_var(var, ty);
-
-                let new_value = self.translate_expr(expr.as_ref());
-                self.builder.def_var(var, new_value);
-                new_value
+                let type_desc = TypeDescription::from_ty(expr.ty);
+                let mut var_vec = Vec::with_capacity(type_desc.0.len());
+                let value_desc = self.translate_expr(expr.as_ref());
+                for (&ty, &value) in type_desc.0.iter().zip(value_desc.0.iter()) {
+                    let var = Variable::new(self.variables.len());
+                    self.builder.declare_var(var, ty);
+                    self.builder.def_var(var, value);
+                    var_vec.push(var);
+                }
+                self.variables
+                    .insert(ident.name, VariableDescription(var_vec));
+                ValueDescription::empty()
             }
+
             ExprKind::Set(ident, expr) => {
-                // `def_var` is used to write the value of a variable. Note that variables can have
-                // multiple definitions. Cranelift will convert them into SSA form for itself
-                // automatically.
-                let new_value = self.translate_expr(expr.as_ref());
-                let var = self.variables.get(&ident.name).unwrap();
-                self.builder.def_var(*var, new_value);
-                new_value
+                let value_desc = self.translate_expr(expr.as_ref());
+                let var_desc = self.variables.get(&ident.name).unwrap();
+                for (&var, &value) in var_desc.0.iter().zip(value_desc.0.iter()) {
+                    self.builder.def_var(var, value);
+                }
+                ValueDescription::empty()
             }
 
             ExprKind::If { cond, then_expr, else_expr } => {
@@ -250,15 +287,21 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
-    fn translate_literal(&mut self, lit: &Literal) -> Value {
+    fn translate_literal(&mut self, lit: &Literal) -> ValueDescription {
         match &lit.kind {
             LiteralKind::Int(val) => {
-                let ty = convert_type(lit.ty);
-                self.builder.ins().iconst(ty, *val as i64)
+                if let &[ty] = TypeDescription::from_ty(lit.ty).0.as_slice() {
+                    ValueDescription(Vec::from([self.builder.ins().iconst(ty, *val as i64)]))
+                } else {
+                    panic!("I think this should be impossible");
+                }
             }
             LiteralKind::Bool(val) => {
-                let ty = convert_type(lit.ty);
-                self.builder.ins().bconst(ty, *val)
+                if let &[ty] = TypeDescription::from_ty(lit.ty).0.as_slice() {
+                    ValueDescription(Vec::from([self.builder.ins().bconst(ty, *val)]))
+                } else {
+                    panic!("I think this should be impossible");
+                }
             }
             LiteralKind::Float(val) => {
                 let input = self.symbols.resolve(val).replace('_', "");
@@ -266,11 +309,11 @@ impl<'a> FunctionTranslator<'a> {
                     // TODO: Move parsing logic somewhere else
                     TyKind::Float(ty::FloatTy::F32) => {
                         let val = f32::from_str(&input).unwrap();
-                        self.builder.ins().f32const(val)
+                        ValueDescription(Vec::from([self.builder.ins().f32const(val)]))
                     }
                     TyKind::Float(ty::FloatTy::F64) => {
                         let val = f64::from_str(&input).unwrap();
-                        self.builder.ins().f64const(val)
+                        ValueDescription(Vec::from([self.builder.ins().f64const(val)]))
                     }
                     _ => unreachable!(),
                 }
@@ -284,28 +327,27 @@ impl<'a> FunctionTranslator<'a> {
         condition: &Expr,
         then_expr: &Expr,
         else_expr: Option<&Expr>,
-    ) -> Value {
+    ) -> ValueDescription {
         let condition_value = self.translate_expr(condition);
 
-        let ty = convert_type(then_expr.ty);
+        let type_desc = TypeDescription::from_ty(then_expr.ty);
 
         let then_block = self.builder.create_block();
         let else_block = self.builder.create_block();
         let merge_block = self.builder.create_block();
 
-        // If-else constructs in the toy language have a return value.
-        // In traditional SSA form, this would produce a PHI between
-        // the then and else bodies. Cranelift uses block parameters,
-        // so set up a parameter in the merge block, and we'll pass
-        // the return values to it from the branches.
         // TODO: We just assume that you return an int
-        self.builder.append_block_param(merge_block, ty);
+        for &ty in type_desc.types() {
+            self.builder.append_block_param(merge_block, ty);
+        }
 
         // Test the if condition and conditionally branch.
         if else_expr.is_some() {
-            self.builder.ins().brz(condition_value, else_block, &[]);
+            let val = condition_value.0[0];
+            self.builder.ins().brz(val, else_block, &[]);
         } else {
-            self.builder.ins().brz(condition_value, merge_block, &[]);
+            let val = condition_value.0[0];
+            self.builder.ins().brz(val, merge_block, &[]);
         }
         // Fall through to then block.
         self.builder.ins().jump(then_block, &[]);
@@ -315,7 +357,7 @@ impl<'a> FunctionTranslator<'a> {
         let then_return = self.translate_expr(then_expr);
 
         // Jump to the merge block, passing it the block return value.
-        self.builder.ins().jump(merge_block, &[then_return]);
+        self.builder.ins().jump(merge_block, &then_return.0);
 
         if let Some(else_expr) = else_expr {
             self.builder.switch_to_block(else_block);
@@ -323,7 +365,7 @@ impl<'a> FunctionTranslator<'a> {
             let else_return = self.translate_expr(else_expr);
 
             // Jump to the merge block, passing it the block return value.
-            self.builder.ins().jump(merge_block, &[else_return]);
+            self.builder.ins().jump(merge_block, &else_return.0);
         }
 
         // Switch to the merge block for subsequent statements.
@@ -334,31 +376,33 @@ impl<'a> FunctionTranslator<'a> {
 
         // Read the value of the if-else by reading the merge block
         // parameter.
-        let phi = self.builder.block_params(merge_block)[0];
-        phi
+        ValueDescription(Vec::from(self.builder.block_params(merge_block)))
     }
 
-    fn translate_block(&mut self, ty: Ty, exprs: &[Expr]) -> Value {
-        let ty = convert_type(ty);
+    fn translate_block(&mut self, ty: Ty, exprs: &[Expr]) -> ValueDescription {
+        let type_desc = TypeDescription::from_ty(ty);
 
         // Create a block which will have this value calculated
         let next_block = self.builder.create_block();
-        self.builder.append_block_param(next_block, ty);
+        for &ty in type_desc.types() {
+            self.builder.append_block_param(next_block, ty);
+        }
 
         // Translate all the expressions and keep the last one as the return value
-        let mut rtn = self.builder.ins().iconst(ty, 0);
+        let mut rtn = None;
         for expr in exprs {
-            rtn = self.translate_expr(expr);
+            rtn = Some(self.translate_expr(expr));
         }
 
         // Switch to the next block passing in the return
-        self.builder.ins().jump(next_block, &[rtn]);
+        self.builder
+            .ins()
+            .jump(next_block, &rtn.expect("this must be used").0);
         self.builder.switch_to_block(next_block);
         self.builder.seal_block(next_block);
 
         // Return the value of this block
-        let phi = self.builder.block_params(next_block)[0];
-        phi
+        ValueDescription(Vec::from(self.builder.block_params(next_block)))
     }
 
     // fn translate_while_loop(&mut self, condition: Expr, loop_body: Vec<Expr>) -> Value {
