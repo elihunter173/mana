@@ -410,7 +410,7 @@ impl<'input> Parser<'input> {
         })
     }
 
-    pub fn typepath(&mut self) -> ParseResult<TypePath> {
+    pub fn typepath(&mut self) -> ParseResult<IdentPath> {
         let head = self.ident()?;
         let mut span = head.span;
         let mut path = vec![head];
@@ -419,7 +419,7 @@ impl<'input> Parser<'input> {
             span.1 = next.span.1;
             path.push(next);
         }
-        Ok(TypePath { path, span })
+        Ok(IdentPath { path, span })
     }
 
     pub fn lit(&mut self) -> ParseResult<Literal> {
@@ -503,7 +503,7 @@ mod tests {
     fn typepath() {
         let (got, mut sym) = run_parser("Foo.Bar", |p| p.typepath());
 
-        let want = Ok(TypePath {
+        let want = Ok(IdentPath {
             path: vec![
                 Ident { name: sym("Foo"), span: (0, 3) },
                 Ident { name: sym("Bar"), span: (4, 7) },
@@ -616,7 +616,7 @@ fn the_answer(): UInt {
                 span: (4, 14),
             },
             params: vec![],
-            return_typepath: Some(TypePath {
+            return_typepath: Some(IdentPath {
                 path: vec![Ident { name: sym("UInt"), span: (18, 22) }],
                 span: (18, 22),
             }),

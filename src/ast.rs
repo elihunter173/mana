@@ -29,7 +29,7 @@ pub struct Ident {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TypePath {
+pub struct IdentPath {
     pub span: Span,
     pub path: Vec<Ident>,
 }
@@ -37,15 +37,15 @@ pub struct TypePath {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FnDef {
     pub name: Ident,
-    pub params: Vec<(Ident, TypePath)>,
-    pub return_typepath: Option<TypePath>,
+    pub params: Vec<(Ident, IdentPath)>,
+    pub return_typepath: Option<IdentPath>,
     pub body: Block,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Item {
     FnDef(FnDef),
-    Import(TypePath),
+    Import(IdentPath),
 }
 
 pub type Expr = Spanned<ExprKind>;
@@ -57,7 +57,7 @@ pub enum ExprKind {
     Binary(BinOp, Box<Expr>, Box<Expr>),
     Unary(UnaryOp, Box<Expr>),
 
-    Let(Ident, Option<TypePath>, Box<Expr>),
+    Let(Ident, Option<IdentPath>, Box<Expr>),
     Set(Ident, Box<Expr>),
 
     FnCall(Ident, Vec<Expr>),

@@ -1,7 +1,7 @@
 use crate::{
-    ast::{self, Ident, Span, TypePath},
+    ast::{self, Ident, IdentPath, Span},
     intern::{Symbol, SymbolInterner},
-    resolve::{ManaObject, ManaPath, Resolver},
+    resolve::{ManaObject, Resolver},
     ty::Ty,
 };
 
@@ -21,21 +21,25 @@ pub enum LoweringErrorKind<'ctx> {
 type LoweringResult<'ctx, T> = Result<T, LoweringError<'ctx>>;
 
 pub struct LoweringContext<'ctx> {
-    pub ty_interner: &'ctx Resolver,
+    pub resolver: &'ctx Resolver,
     pub symbol_interner: &'ctx SymbolInterner,
 }
 
 impl<'ctx> LoweringContext<'ctx> {
-    fn resolve_typepath(&self, typepath: &TypePath) -> LoweringResult<Type<'ctx>> {
+    fn resolve_typepath(&self, typepath: &IdentPath) -> LoweringResult<Type<'ctx>> {
         // TODO: This is kinda silly, that we go from string to vec to string again. We could probably
         // just store TypePath as a string?
-        let path = ManaPath {
-            idents: typepath.path.iter().map(|ident| ident.name).collect(),
-        };
-        let obj = self.ty_interner.resolve(&path).ok_or(LoweringError {
-            kind: LoweringErrorKind::UnknownType("TODO".to_owned()),
-            span: typepath.span,
-        })?;
+        let path = typepath.path.iter().map(|ident| ident.name).collect();
+        // TODO: Actually keep track of current scope
+        let current_scope = Vec::new();
+        let obj = self
+            .resolver
+            .resolve(&current_scope, &path)
+            .ok_or(LoweringError {
+                kind: LoweringErrorKind::UnknownType("TODO".to_owned()),
+                span: typepath.span,
+            })?;
+
         let ty = match obj {
             ManaObject::Type(ty) => ty,
             _ => {
@@ -45,6 +49,7 @@ impl<'ctx> LoweringContext<'ctx> {
                 })
             }
         };
+
         Ok(Type { ty, span: typepath.span })
     }
 
@@ -60,7 +65,7 @@ impl<'ctx> LoweringContext<'ctx> {
             self.resolve_typepath(typepath)?
         } else {
             Type {
-                ty: self.ty_interner.unit(),
+                ty: self.resolver.unit(),
                 span: fd.name.span,
             }
         };
@@ -172,7 +177,7 @@ impl<'ctx> LoweringContext<'ctx> {
                     });
                 }
 
-                self.ty_interner.bool()
+                self.resolver.bool()
             }
 
             BinOp::Lt | BinOp::Leq | BinOp::Gt | BinOp::Geq => {
@@ -195,7 +200,7 @@ impl<'ctx> LoweringContext<'ctx> {
                     });
                 }
 
-                self.ty_interner.bool()
+                self.resolver.bool()
             }
 
             BinOp::Land | BinOp::Lor => {
@@ -254,7 +259,7 @@ impl<'ctx> LoweringContext<'ctx> {
         &self,
         span: Span,
         ident: &ast::Ident,
-        typepath: Option<&ast::TypePath>,
+        typepath: Option<&ast::IdentPath>,
         expr: &ast::Expr,
     ) -> LoweringResult<Expr<'ctx>> {
         let expr = self.lower_expr(expr)?;
@@ -270,23 +275,23 @@ impl<'ctx> LoweringContext<'ctx> {
 
         Ok(Expr {
             span,
-            ty: self.ty_interner.unit(),
+            ty: self.resolver.unit(),
             kind: ExprKind::Let(*ident, Box::new(expr)),
         })
     }
 
     fn lower_literal(&self, lit: &ast::Literal) -> LoweringResult<Literal<'ctx>> {
         let (kind, ty) = match lit.kind {
-            ast::LiteralKind::Bool(val) => (LiteralKind::Bool(val), self.ty_interner.bool()),
-            ast::LiteralKind::Int(val) => (LiteralKind::Int(val), self.ty_interner.int()),
-            ast::LiteralKind::Float(val) => (LiteralKind::Float(val), self.ty_interner.float()),
-            ast::LiteralKind::String(val) => (LiteralKind::String(val), self.ty_interner.string()),
+            ast::LiteralKind::Bool(val) => (LiteralKind::Bool(val), self.resolver.bool()),
+            ast::LiteralKind::Int(val) => (LiteralKind::Int(val), self.resolver.int()),
+            ast::LiteralKind::Float(val) => (LiteralKind::Float(val), self.resolver.float()),
+            ast::LiteralKind::String(val) => (LiteralKind::String(val), self.resolver.string()),
         };
         Ok(Literal { kind, ty, span: lit.span })
     }
 
     fn lower_block(&self, block: &ast::Block) -> LoweringResult<(Ty<'ctx>, Vec<Expr<'ctx>>)> {
-        let mut ty = self.ty_interner.unit();
+        let mut ty = self.resolver.unit();
         let mut exprs = Vec::with_capacity(block.len());
         for expr in block.iter() {
             let expr = self.lower_expr(expr)?;
@@ -307,7 +312,7 @@ impl<'ctx> LoweringContext<'ctx> {
         if !cond.ty.is_boolean() {
             return Err(LoweringError {
                 kind: LoweringErrorKind::TypeConflict {
-                    want: self.ty_interner.bool(),
+                    want: self.resolver.bool(),
                     got: cond.ty,
                 },
                 span: cond.span,
@@ -385,6 +390,7 @@ pub type Block<'ctx> = Vec<Expr<'ctx>>;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Literal<'ctx> {
     pub span: Span,
+    // TODO: I need to rethink this so I can more easily convert to a type
     pub kind: LiteralKind,
     pub ty: Ty<'ctx>,
 }

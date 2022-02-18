@@ -5,11 +5,9 @@ use crate::{
     ty::{FloatTy, IntTy, Ty, TyKind, TyS, UIntTy, DEFAULT_FLOAT, DEFAULT_INT, DEFAULT_UINT},
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ManaPath {
-    // TODO: This must be non-empty
-    pub idents: Vec<Symbol>,
-}
+// TODO: This must be non-empty
+// TODO: Make this a new type
+pub type ManaPath = Vec<Symbol>;
 
 #[derive(Debug)]
 pub enum ManaObject {
@@ -23,9 +21,7 @@ pub struct Resolver {
 
 impl Resolver {
     pub fn with_primitives(interner: &mut SymbolInterner) -> Self {
-        let mut path = |s: &str| ManaPath {
-            idents: Vec::from([interner.get_or_intern(s)]),
-        };
+        let mut path = |s: &str| Vec::from([interner.get_or_intern(s)]);
         let ty = |kind| ManaObject::Type(TyS { kind });
 
         Self {
@@ -74,7 +70,8 @@ impl Resolver {
         &TyS { kind: TyKind::String }
     }
 
-    pub fn resolve(&self, path: &ManaPath) -> Option<&ManaObject> {
+    pub fn resolve(&self, scope: &ManaPath, path: &ManaPath) -> Option<&ManaObject> {
+        // TODO: Use ManaPath
         self.map.get(path)
     }
 

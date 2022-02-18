@@ -114,7 +114,7 @@ fn run(path: &str) {
     };
 
     let lowering_ctx = ir::LoweringContext {
-        ty_interner: &mut resolver,
+        resolver: &mut resolver,
         symbol_interner: &symbol_interner,
     };
     let func = match lowering_ctx.lower_fn_def(&func) {
