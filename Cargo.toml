@@ -25,6 +25,6 @@ clap = { version = "3.0.0-rc.6", features = ["derive"] }
 lasso = "0.6.0"
 
 # Compilation
-cranelift = "0.78.0"
-cranelift-module = "0.78.0"
-cranelift-jit = "0.78.0"
+cranelift = "0.81.1"
+cranelift-module = "0.81.1"
+cranelift-jit = "0.81.1"
