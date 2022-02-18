@@ -139,7 +139,7 @@ pub enum TokenKind {
     #[regex(r"[0-9][_0-9]*\.[0-9][_0-9]*")]
     Float,
 
-    #[regex(r"//.*", logos::skip)]
+    #[regex(r"//.*\n", logos::skip)]
     Comment,
     #[error]
     // Whitespace
