@@ -1,21 +1,21 @@
 pub trait Iterator {
     type Item
-    fn next(&uniq self) -> Option[Self.Item]
+    fn next(&uniq self) Option[Self.Item]
 }
 
 // TODO: How do I want to extend traits in a way that the implementor can't
 // override?
-impl Iterator {
-    fn for_each(&self, f: fn(Self.Item)) {
-        loop {
-            match self.next() {
-                Some(x) => f(x),
-                None => return,
-            }
+fn[T Iterator] for_each(&self T, f fn(T.Item)) {
+    loop {
+        match self.next() {
+            Some(x) => f(x),
+            None => return,
         }
     }
 }
 
-pub fn repeat(n: UInt, f: fn()) {
-  (0..n).for_each(f)
+pub fn repeat(n UInt, f fn()) {
+    (0..n).for_each() {
+        f()
+    }
 }

@@ -1,24 +1,20 @@
 // Nice definition
-struct TestDesc {
-  desc: String,
-  test_fn: fn(),
-}
+struct TestDesc(
+    desc    String,
+    test_fn fn(),
+)
 
-struct Tester {
-  tests: List[TestDesc],
-}
+struct Tester(tests List[TestDesc])
 
-impl Tester {
-  fn add_test(&uniq self, t: TestDesc) {
+fn add_test(&self Tester, t TestDesc) {
     self.tests.append(t)
-  }
 }
 
-fn test(desc: String, test_fn: fn()) {
-  GLOBAL_TESTER.add_test(TestDesc("desc", test_fn))
+fn test(desc String, test_fn fn()) {
+    GLOBAL_TESTER.add_test(TestDesc("desc", test_fn))
 }
 
 // Example Usage
 test("make sure fib works") {
-  assert_eq(fib(5), 5)
+    assert_eq(fib(5), 5)
 }

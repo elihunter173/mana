@@ -2,7 +2,7 @@
 
 import std.net.HTTPServer
 
-let server = HTMLServer()
+let server = HTTPServer()
 server.endpoint("/hello") {
     "Hello, World!"
 }

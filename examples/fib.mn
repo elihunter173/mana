@@ -1,9 +1,10 @@
 #!/usr/bin/env mana
 
-fn fib(n: UInt) -> UInt {
-  let a = 0, b = 1
-  repeat(n) {
-    (a, b) = (b, a + 1)
-  }
-  a
+fn fib(n UInt) UInt {
+    var a UInt = 0
+    var b UInt = 0
+    repeat(n) {
+        (a, b) = (b, a + 1)
+    }
+    a
 }
