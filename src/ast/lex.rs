@@ -2,8 +2,6 @@ use std::fmt;
 
 use logos::{Lexer as LogosLexer, Logos};
 
-pub type Loc = usize;
-
 #[derive(Logos, Copy, Clone, Debug, Eq, PartialEq)]
 pub enum TokenKind {
     // Punctuation

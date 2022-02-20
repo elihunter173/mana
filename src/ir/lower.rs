@@ -18,6 +18,7 @@ pub struct LoweringError {
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum LoweringErrorKind {
     UnknownType(String),
+    UnknownVariable(Ident),
     TypeConflict { want: TypeId, got: TypeId },
     InvalidType(TypeId),
     DuplicateItem,
@@ -26,31 +27,26 @@ pub enum LoweringErrorKind {
 type LoweringResult<T> = Result<T, LoweringError>;
 
 pub struct Lowerer<'ctx> {
-    // TODO: This should not be public
+    // TODO: These should not be public
     pub resolver: &'ctx mut Resolver,
     pub registry: &'ctx mut Registry,
     pub symbol_interner: &'ctx SymbolInterner,
 }
 
 impl<'ctx> Lowerer<'ctx> {
-    // TODO: TypePaths shouldn't exist
+    // TODO: TypePaths shouldn't exist?
     fn resolve_typepath(&self, typepath: &IdentPath) -> LoweringResult<Type> {
-        // TODO: Maybetypepaths shouldn't exist... I still need to figure out how I want to do this
+        // TODO: This is a hack
         let sym = typepath.path[0].sym;
-        // TODO: Actually keep track of current scope. Probably should keep track of locals as well
         let obj = self.resolver.resolve(&sym).ok_or(LoweringError {
             kind: LoweringErrorKind::UnknownType("TODO".to_owned()),
             span: typepath.span,
         })?;
 
-        let ty = if let Some(id) = obj.as_type_id() {
-            id
-        } else {
-            return Err(LoweringError {
-                kind: LoweringErrorKind::UnknownType("TODO".to_owned()),
-                span: typepath.span,
-            });
-        };
+        let ty = obj.as_type_id().ok_or(LoweringError {
+            kind: LoweringErrorKind::UnknownType("TODO".to_owned()),
+            span: typepath.span,
+        })?;
 
         Ok(Type { id: ty, span: typepath.span })
     }
@@ -138,11 +134,10 @@ impl<'ctx> Lowerer<'ctx> {
             }
             ast::ExprKind::Binary(op, left, right) => self.lower_binary(op, left, right),
             ast::ExprKind::Unary(op, expr) => self.lower_unary(op, expr),
-            // TODO: This should respect scope
-            ast::ExprKind::Let(ident, typepath, init_expr) => {
-                self.lower_let(expr.span, ident, typepath.as_ref(), init_expr)
+            ast::ExprKind::Let(var_id, typepath, init_expr) => {
+                self.lower_let(expr.span, var_id, typepath.as_ref(), init_expr)
             }
-            ast::ExprKind::Set(_, _) => todo!("I need to add the concept of scope for this"),
+            ast::ExprKind::Set(var_id, set_expr) => self.lower_set(expr.span, var_id, set_expr),
             ast::ExprKind::FnCall(_, _) => todo!("I need to add the concept of scope for this"),
             ast::ExprKind::Block(block) => {
                 let (ty, block) = self.lower_block(block)?;
@@ -156,7 +151,7 @@ impl<'ctx> Lowerer<'ctx> {
                 expr.span,
                 cond,
                 then_expr,
-                else_expr.as_ref().expect("TODO: support empty else"),
+                else_expr.as_ref().map(|expr| expr.as_ref()),
             ),
         }
     }
@@ -334,6 +329,29 @@ impl<'ctx> Lowerer<'ctx> {
         })
     }
 
+    fn lower_set(
+        &mut self,
+        span: Span,
+        ident: &ast::Ident,
+        expr: &ast::Expr,
+    ) -> LoweringResult<Expr> {
+        let expr = self.lower_expr(expr)?;
+
+        let var_id = self.resolver.resolve(&ident.sym).ok_or(LoweringError {
+            kind: LoweringErrorKind::UnknownVariable(*ident),
+            span: ident.span,
+        })?;
+        let var_id = var_id
+            .as_variable_id()
+            .expect("must be variable. TODO: rework entire diagnostics");
+
+        Ok(Expr {
+            span,
+            ty: self.registry.unit(),
+            kind: ExprKind::Set(var_id, Box::new(expr)),
+        })
+    }
+
     fn lower_literal(&self, lit: &ast::Literal) -> LoweringResult<Literal> {
         let (kind, ty) = match lit.kind {
             ast::LiteralKind::Bool(val) => (LiteralKind::Bool(val), self.registry.bool()),
@@ -362,7 +380,7 @@ impl<'ctx> Lowerer<'ctx> {
         span: Span,
         cond: &ast::Expr,
         then_expr: &ast::Expr,
-        else_expr: &ast::Expr,
+        else_expr: Option<&ast::Expr>,
     ) -> LoweringResult<Expr> {
         let cond = self.lower_expr(cond)?;
         if !self.registry.get_type(cond.ty).is_boolean() {
@@ -376,15 +394,32 @@ impl<'ctx> Lowerer<'ctx> {
         }
 
         let then_expr = self.lower_expr(then_expr)?;
-        let else_expr = self.lower_expr(else_expr)?;
-        if then_expr.ty != else_expr.ty {
-            return Err(LoweringError {
-                kind: LoweringErrorKind::TypeConflict {
-                    want: then_expr.ty,
-                    got: else_expr.ty,
-                },
-                span: else_expr.span,
-            });
+        let else_expr = if let Some(else_expr) = else_expr {
+            Some(self.lower_expr(else_expr)?)
+        } else {
+            None
+        };
+
+        if let Some(else_expr) = &else_expr {
+            if then_expr.ty != else_expr.ty {
+                return Err(LoweringError {
+                    kind: LoweringErrorKind::TypeConflict {
+                        want: then_expr.ty,
+                        got: else_expr.ty,
+                    },
+                    span: else_expr.span,
+                });
+            }
+        } else {
+            if then_expr.ty != self.registry.unit() {
+                return Err(LoweringError {
+                    kind: LoweringErrorKind::TypeConflict {
+                        want: self.registry.unit(),
+                        got: then_expr.ty,
+                    },
+                    span: then_expr.span,
+                });
+            }
         }
 
         Ok(Expr {
@@ -393,7 +428,7 @@ impl<'ctx> Lowerer<'ctx> {
             kind: ExprKind::If {
                 cond: Box::new(cond),
                 then_expr: Box::new(then_expr),
-                else_expr: Some(Box::new(else_expr)),
+                else_expr: else_expr.map(Box::new),
             },
         })
     }

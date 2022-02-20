@@ -22,9 +22,9 @@ impl SymbolInterner {
         Self { inner: Rodeo::new() }
     }
 
-    pub fn get(&self, val: &str) -> Option<Symbol> {
-        self.inner.get(val)
-    }
+    // pub fn get(&self, val: &str) -> Option<Symbol> {
+    //     self.inner.get(val)
+    // }
 
     pub fn get_or_intern(&mut self, val: &str) -> Symbol {
         self.inner.get_or_intern(val)

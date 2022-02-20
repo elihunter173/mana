@@ -37,6 +37,10 @@ pub fn diagnostic_from_lowering_error(err: &LoweringError) -> Diagnostic {
             .with_message("unknown type")
             .with_labels(vec![Label::primary((), err.span.0..err.span.1)
                 .with_message(format!("unknown type `{}`", path))]),
+        LoweringErrorKind::UnknownVariable(ident) => Diagnostic::new(Severity::Error)
+            .with_message("unknown variable")
+            .with_labels(vec![Label::primary((), err.span.0..err.span.1)
+                .with_message(format!("unknown variable `{:?}`", ident))]),
         LoweringErrorKind::TypeConflict { want, got } => Diagnostic::new(Severity::Error)
             .with_message("mismatched types")
             .with_labels(vec![Label::primary((), err.span.0..err.span.1)

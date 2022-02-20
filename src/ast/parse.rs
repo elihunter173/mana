@@ -252,9 +252,7 @@ impl<'input> Parser<'input> {
         })
     }
 
-    fn set(&mut self) -> ParseResult<Expr> {
-        let ident = self.ident()?;
-
+    fn set(&mut self, ident: Ident) -> ParseResult<Expr> {
         let assign_op = self.try_peek()?;
         let op = match assign_op.kind {
             TokenKind::Equals => None,
@@ -377,15 +375,11 @@ impl<'input> Parser<'input> {
                             kind: ExprKind::FnCall(ident, args),
                         })
                     }
-                    TokenKind::Equals => {
-                        self.lexer.next();
-                        // TODO: Do I want Set to be an expression?
-                        let expr = self.expr()?;
-                        Ok(Expr {
-                            span: (ident.span.0, expr.span.1),
-                            kind: ExprKind::Set(ident, Box::new(expr)),
-                        })
-                    }
+                    TokenKind::Equals
+                    | TokenKind::PlusEq
+                    | TokenKind::MinusEq
+                    | TokenKind::StarEq
+                    | TokenKind::SlashEq => self.set(ident),
                     _ => Ok(Expr {
                         span: ident.span,
                         kind: ExprKind::Ident(ident),

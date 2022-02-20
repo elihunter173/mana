@@ -33,7 +33,7 @@ pub enum TyKind {
 
 pub const DEFAULT_INT: IntTy = IntTy::I32;
 pub const DEFAULT_UINT: UIntTy = UIntTy::U32;
-pub const DEFAULT_FLOAT: FloatTy = FloatTy::F64;
+// pub const DEFAULT_FLOAT: FloatTy = FloatTy::F64;
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum IntTy {
