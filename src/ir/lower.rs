@@ -1,91 +1,133 @@
 use crate::{
-    ast::{self, Ident, IdentPath, Span},
-    intern::{Symbol, SymbolInterner},
-    resolve::{ManaObject, Resolver},
-    ty::Ty,
+    ast::{self, IdentPath, Span},
+    ir::resolve::ResolverError,
+};
+
+use super::{
+    registry::{Registry, TypeId},
+    resolve::Resolver,
+    *,
 };
 
 #[derive(Debug, Eq, PartialEq, Clone)]
-pub struct LoweringError<'ctx> {
-    pub kind: LoweringErrorKind<'ctx>,
+pub struct LoweringError {
+    pub kind: LoweringErrorKind,
     pub span: (usize, usize),
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]
-pub enum LoweringErrorKind<'ctx> {
+pub enum LoweringErrorKind {
     UnknownType(String),
-    TypeConflict { want: Ty<'ctx>, got: Ty<'ctx> },
-    InvalidType(Ty<'ctx>),
+    TypeConflict { want: TypeId, got: TypeId },
+    InvalidType(TypeId),
+    DuplicateItem,
 }
 
-type LoweringResult<'ctx, T> = Result<T, LoweringError<'ctx>>;
+type LoweringResult<T> = Result<T, LoweringError>;
 
-pub struct LoweringContext<'ctx> {
-    pub resolver: &'ctx Resolver,
+pub struct Lowerer<'ctx> {
+    // TODO: This should not be public
+    pub resolver: &'ctx mut Resolver,
+    pub registry: &'ctx mut Registry,
     pub symbol_interner: &'ctx SymbolInterner,
 }
 
-impl<'ctx> LoweringContext<'ctx> {
-    fn resolve_typepath(&self, typepath: &IdentPath) -> LoweringResult<Type<'ctx>> {
-        // TODO: This is kinda silly, that we go from string to vec to string again. We could probably
-        // just store TypePath as a string?
-        let path = typepath.path.iter().map(|ident| ident.name).collect();
-        // TODO: Actually keep track of current scope
-        let current_scope = Vec::new();
-        let obj = self
-            .resolver
-            .resolve(&current_scope, &path)
-            .ok_or(LoweringError {
+impl<'ctx> Lowerer<'ctx> {
+    // TODO: TypePaths shouldn't exist
+    fn resolve_typepath(&self, typepath: &IdentPath) -> LoweringResult<Type> {
+        // TODO: Maybetypepaths shouldn't exist... I still need to figure out how I want to do this
+        let sym = typepath.path[0].sym;
+        // TODO: Actually keep track of current scope. Probably should keep track of locals as well
+        let obj = self.resolver.resolve(&sym).ok_or(LoweringError {
+            kind: LoweringErrorKind::UnknownType("TODO".to_owned()),
+            span: typepath.span,
+        })?;
+
+        let ty = if let Some(id) = obj.as_type_id() {
+            id
+        } else {
+            return Err(LoweringError {
                 kind: LoweringErrorKind::UnknownType("TODO".to_owned()),
                 span: typepath.span,
-            })?;
-
-        let ty = match obj {
-            ManaObject::Type(ty) => ty,
-            _ => {
-                return Err(LoweringError {
-                    kind: LoweringErrorKind::UnknownType("TODO".to_owned()),
-                    span: typepath.span,
-                })
-            }
+            });
         };
 
-        Ok(Type { ty, span: typepath.span })
+        Ok(Type { id: ty, span: typepath.span })
+    }
+}
+
+impl<'ctx> Lowerer<'ctx> {
+    pub fn lower_module(&mut self, module: &ast::Module) -> LoweringResult<Module> {
+        self.resolver.enter_scope();
+        let mut module_items = Vec::with_capacity(module.items.len());
+        for item in &module.items {
+            match item {
+                ast::Item::FnDef(fn_def) => {
+                    let func = self.lower_fn_def(fn_def)?;
+                    let func_span = func.span;
+                    let func_name = func.name.sym;
+                    let func_id = self.registry.register_function(func);
+                    self.resolver
+                        .define_function(func_name, func_id)
+                        .map_err(|err| match err {
+                            ResolverError::DuplicateItem => LoweringError {
+                                kind: LoweringErrorKind::DuplicateItem,
+                                span: func_span,
+                            },
+                        })?;
+                    module_items.push(Item::Function(func_id))
+                }
+                ast::Item::Import(_) => unimplemented!(),
+            }
+        }
+        self.resolver.exit_scope();
+        Ok(Module { items: module_items })
     }
 
-    // TODO: Think about what should be public
-
-    pub fn lower_fn_def(&self, fd: &ast::FnDef) -> LoweringResult<FnDef<'ctx>> {
-        let mut params = Vec::with_capacity(fd.params.len());
-        for (ident, typepath) in &fd.params {
+    fn lower_fn_def(&mut self, fn_def: &ast::FnDef) -> LoweringResult<Function> {
+        let mut params = Vec::with_capacity(fn_def.params.len());
+        for (ident, typepath) in &fn_def.params {
             params.push((*ident, self.resolve_typepath(typepath)?));
         }
 
-        let return_ty = if let Some(typepath) = &fd.return_typepath {
+        let return_ty = if let Some(typepath) = &fn_def.return_typepath {
             self.resolve_typepath(typepath)?
         } else {
             Type {
-                ty: self.resolver.unit(),
-                span: fd.name.span,
+                id: self.registry.unit(),
+                span: fn_def.name.span,
             }
         };
 
-        let mut body = Vec::with_capacity(fd.body.len());
-        for expr in &fd.body {
+        let mut body = Vec::with_capacity(fn_def.body.len());
+        for expr in &fn_def.body {
             body.push(self.lower_expr(expr)?);
         }
 
-        Ok(FnDef {
-            name: fd.name,
+        Ok(Function {
+            name: fn_def.name,
             params,
             return_ty,
             body,
+            span: fn_def.span,
         })
     }
 
-    fn lower_expr(&self, expr: &ast::Expr) -> LoweringResult<Expr<'ctx>> {
+    fn lower_expr(&mut self, expr: &ast::Expr) -> LoweringResult<Expr> {
         match &expr.kind {
-            ast::ExprKind::Ident(_) => todo!("I need to respect lexical scope for this"),
+            ast::ExprKind::Ident(ident) => {
+                let obj_id = self
+                    .resolver
+                    .resolve(&ident.sym)
+                    .expect("undefined variable. TODO: Better error message");
+                let var_id = obj_id.as_variable_id().expect("this isn't a variable");
+                Ok(Expr {
+                    span: ident.span,
+                    kind: ExprKind::Variable(var_id),
+                    ty: self.registry.get_variable(var_id).ty,
+                })
+            }
+
             ast::ExprKind::Literal(lit) => {
                 let lowered = self.lower_literal(lit)?;
                 Ok(Expr {
@@ -120,11 +162,11 @@ impl<'ctx> LoweringContext<'ctx> {
     }
 
     fn lower_binary(
-        &self,
+        &mut self,
         op: &ast::BinOp,
         left: &ast::Expr,
         right: &ast::Expr,
-    ) -> LoweringResult<Expr<'ctx>> {
+    ) -> LoweringResult<Expr> {
         let op = match op {
             ast::BinOp::Mul => BinOp::Mul,
             ast::BinOp::Div => BinOp::Div,
@@ -147,13 +189,13 @@ impl<'ctx> LoweringContext<'ctx> {
         let ty = match op {
             BinOp::Mul | BinOp::Div | BinOp::Add | BinOp::Sub => {
                 // TODO: Eventually this should use our function call machinery
-                if !left.ty.is_numeric() {
+                if !self.registry.get_type(left.ty).is_numeric() {
                     return Err(LoweringError {
                         kind: LoweringErrorKind::InvalidType(left.ty),
                         span: left.span,
                     });
                 }
-                if !right.ty.is_numeric() {
+                if !self.registry.get_type(right.ty).is_numeric() {
                     return Err(LoweringError {
                         kind: LoweringErrorKind::InvalidType(right.ty),
                         span: right.span,
@@ -177,17 +219,17 @@ impl<'ctx> LoweringContext<'ctx> {
                     });
                 }
 
-                self.resolver.bool()
+                self.registry.bool()
             }
 
             BinOp::Lt | BinOp::Leq | BinOp::Gt | BinOp::Geq => {
-                if !left.ty.is_numeric() {
+                if !self.registry.get_type(left.ty).is_numeric() {
                     return Err(LoweringError {
                         kind: LoweringErrorKind::InvalidType(left.ty),
                         span: left.span,
                     });
                 }
-                if !right.ty.is_numeric() {
+                if !self.registry.get_type(right.ty).is_numeric() {
                     return Err(LoweringError {
                         kind: LoweringErrorKind::InvalidType(right.ty),
                         span: right.span,
@@ -200,17 +242,17 @@ impl<'ctx> LoweringContext<'ctx> {
                     });
                 }
 
-                self.resolver.bool()
+                self.registry.bool()
             }
 
             BinOp::Land | BinOp::Lor => {
-                if !left.ty.is_boolean() {
+                if !self.registry.get_type(left.ty).is_boolean() {
                     return Err(LoweringError {
                         kind: LoweringErrorKind::InvalidType(left.ty),
                         span: left.span,
                     });
                 }
-                if !right.ty.is_boolean() {
+                if !self.registry.get_type(right.ty).is_boolean() {
                     return Err(LoweringError {
                         kind: LoweringErrorKind::InvalidType(right.ty),
                         span: right.span,
@@ -228,7 +270,7 @@ impl<'ctx> LoweringContext<'ctx> {
         })
     }
 
-    fn lower_unary(&self, op: &ast::UnaryOp, expr: &ast::Expr) -> LoweringResult<Expr<'ctx>> {
+    fn lower_unary(&mut self, op: &ast::UnaryOp, expr: &ast::Expr) -> LoweringResult<Expr> {
         let op = match op {
             ast::UnaryOp::Neg => UnaryOp::Neg,
         };
@@ -237,7 +279,7 @@ impl<'ctx> LoweringContext<'ctx> {
 
         let ty = match op {
             UnaryOp::Neg => {
-                if !expr.ty.is_numeric() {
+                if !self.registry.get_type(expr.ty).is_numeric() {
                     return Err(LoweringError {
                         kind: LoweringErrorKind::InvalidType(expr.ty),
                         span: expr.span,
@@ -256,63 +298,77 @@ impl<'ctx> LoweringContext<'ctx> {
     }
 
     fn lower_let(
-        &self,
+        &mut self,
         span: Span,
         ident: &ast::Ident,
         typepath: Option<&ast::IdentPath>,
         expr: &ast::Expr,
-    ) -> LoweringResult<Expr<'ctx>> {
+    ) -> LoweringResult<Expr> {
         let expr = self.lower_expr(expr)?;
         if let Some(typepath) = typepath {
-            let declared_typ = self.resolve_typepath(typepath)?;
-            if declared_typ.ty != expr.ty {
+            let declared_type = self.resolve_typepath(typepath)?;
+            if declared_type.id != expr.ty {
                 return Err(LoweringError {
-                    kind: LoweringErrorKind::TypeConflict { want: declared_typ.ty, got: expr.ty },
+                    kind: LoweringErrorKind::TypeConflict { want: declared_type.id, got: expr.ty },
                     span: expr.span,
                 });
             }
         }
 
+        let var_id = self
+            .registry
+            .register_variable(Variable { ty: expr.ty, span: ident.span });
+        self.resolver
+            .define_variable(ident.sym, var_id)
+            .map_err(|err| match err {
+                ResolverError::DuplicateItem => LoweringError {
+                    kind: LoweringErrorKind::DuplicateItem,
+                    span: ident.span,
+                },
+            })?;
+
         Ok(Expr {
             span,
-            ty: self.resolver.unit(),
-            kind: ExprKind::Let(*ident, Box::new(expr)),
+            ty: self.registry.unit(),
+            kind: ExprKind::Let(var_id, Box::new(expr)),
         })
     }
 
-    fn lower_literal(&self, lit: &ast::Literal) -> LoweringResult<Literal<'ctx>> {
+    fn lower_literal(&self, lit: &ast::Literal) -> LoweringResult<Literal> {
         let (kind, ty) = match lit.kind {
-            ast::LiteralKind::Bool(val) => (LiteralKind::Bool(val), self.resolver.bool()),
-            ast::LiteralKind::Int(val) => (LiteralKind::Int(val), self.resolver.int()),
-            ast::LiteralKind::Float(val) => (LiteralKind::Float(val), self.resolver.float()),
-            ast::LiteralKind::String(val) => (LiteralKind::String(val), self.resolver.string()),
+            ast::LiteralKind::Bool(val) => (LiteralKind::Bool(val), self.registry.bool()),
+            ast::LiteralKind::Int(val) => (LiteralKind::Int(val), self.registry.int()),
+            ast::LiteralKind::Float(val) => (LiteralKind::Float(val), self.registry.float()),
+            ast::LiteralKind::String(val) => (LiteralKind::String(val), self.registry.string()),
         };
         Ok(Literal { kind, ty, span: lit.span })
     }
 
-    fn lower_block(&self, block: &ast::Block) -> LoweringResult<(Ty<'ctx>, Vec<Expr<'ctx>>)> {
-        let mut ty = self.resolver.unit();
+    fn lower_block(&mut self, block: &ast::Block) -> LoweringResult<(TypeId, Vec<Expr>)> {
+        self.resolver.enter_scope();
+        let mut ty = self.registry.unit();
         let mut exprs = Vec::with_capacity(block.len());
         for expr in block.iter() {
             let expr = self.lower_expr(expr)?;
             ty = expr.ty;
             exprs.push(expr);
         }
+        self.resolver.exit_scope();
         Ok((ty, exprs))
     }
 
     fn lower_if(
-        &self,
+        &mut self,
         span: Span,
         cond: &ast::Expr,
         then_expr: &ast::Expr,
         else_expr: &ast::Expr,
-    ) -> LoweringResult<Expr<'ctx>> {
+    ) -> LoweringResult<Expr> {
         let cond = self.lower_expr(cond)?;
-        if !cond.ty.is_boolean() {
+        if !self.registry.get_type(cond.ty).is_boolean() {
             return Err(LoweringError {
                 kind: LoweringErrorKind::TypeConflict {
-                    want: self.resolver.bool(),
+                    want: self.registry.bool(),
                     got: cond.ty,
                 },
                 span: cond.span,
@@ -341,85 +397,4 @@ impl<'ctx> LoweringContext<'ctx> {
             },
         })
     }
-}
-
-/// A resolved TypePath. `span` is where the typepath is
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Type<'ctx> {
-    pub ty: Ty<'ctx>,
-    pub span: Span,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FnDef<'ctx> {
-    pub name: Ident,
-    pub params: Vec<(Ident, Type<'ctx>)>,
-    pub return_ty: Type<'ctx>,
-    pub body: Vec<Expr<'ctx>>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Expr<'ctx> {
-    pub span: Span,
-    pub kind: ExprKind<'ctx>,
-    pub ty: Ty<'ctx>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ExprKind<'ctx> {
-    Ident(Ident),
-    Literal(Literal<'ctx>),
-    Binary(BinOp, Box<Expr<'ctx>>, Box<Expr<'ctx>>),
-    Unary(UnaryOp, Box<Expr<'ctx>>),
-
-    Let(Ident, Box<Expr<'ctx>>),
-    Set(Ident, Box<Expr<'ctx>>),
-
-    FnCall(Ident, Vec<Expr<'ctx>>),
-    Block(Block<'ctx>),
-    If {
-        cond: Box<Expr<'ctx>>,
-        // TODO: Maybe make this a Block type?
-        then_expr: Box<Expr<'ctx>>,
-        else_expr: Option<Box<Expr<'ctx>>>,
-    },
-}
-
-pub type Block<'ctx> = Vec<Expr<'ctx>>;
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Literal<'ctx> {
-    pub span: Span,
-    // TODO: I need to rethink this so I can more easily convert to a type
-    pub kind: LiteralKind,
-    pub ty: Ty<'ctx>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum LiteralKind {
-    Bool(bool),
-    Int(u128),
-    Float(Symbol),
-    String(Symbol),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum BinOp {
-    Mul,
-    Div,
-    Add,
-    Sub,
-    Eq,
-    Neq,
-    Lt,
-    Leq,
-    Gt,
-    Geq,
-    Land,
-    Lor,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum UnaryOp {
-    Neg,
 }

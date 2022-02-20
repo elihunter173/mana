@@ -1,9 +1,11 @@
 use std::str::FromStr;
 
 use crate::{
-    ast::*,
+    ast::{
+        lex::{Lexer, Token, TokenKind},
+        *,
+    },
     intern::SymbolInterner,
-    lex::{Lexer, Token, TokenKind},
 };
 
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -103,7 +105,7 @@ impl<'input> Parser<'input> {
 }
 
 impl<'input> Parser<'input> {
-    pub fn items(&mut self) -> ParseResult<Vec<Item>> {
+    pub fn module(&mut self) -> ParseResult<Module> {
         // TODO: Figure out a way to re-use delimited
         let mut items = Vec::new();
         if !self.finished() {
@@ -115,10 +117,10 @@ impl<'input> Parser<'input> {
             }
             items.push(self.item()?);
         }
-        Ok(items)
+        Ok(Module { items })
     }
 
-    pub fn item(&mut self) -> ParseResult<Item> {
+    fn item(&mut self) -> ParseResult<Item> {
         let tok = self.try_peek()?;
         match tok.kind {
             TokenKind::Import => self.import(),
@@ -130,8 +132,8 @@ impl<'input> Parser<'input> {
         }
     }
 
-    pub fn fn_def(&mut self) -> ParseResult<FnDef> {
-        self.token(TokenKind::Fn)?;
+    fn fn_def(&mut self) -> ParseResult<FnDef> {
+        let start = self.token(TokenKind::Fn)?.span.0;
         let name = self.ident()?;
         let (args, _span) = self.delimited(
             TokenKind::LParen,
@@ -149,22 +151,23 @@ impl<'input> Parser<'input> {
         } else {
             None
         };
-        let (body, _span) = self.block()?;
+        let (body, (_start, end)) = self.block()?;
         Ok(FnDef {
             name,
             params: args,
             return_typepath: return_type,
             body,
+            span: (start, end),
         })
     }
 
-    pub fn import(&mut self) -> ParseResult<Item> {
+    fn import(&mut self) -> ParseResult<Item> {
         self.token(TokenKind::Import)?;
         let typepath = self.typepath()?;
         Ok(Item::Import(typepath))
     }
 
-    pub fn expr(&mut self) -> ParseResult<Expr> {
+    fn expr(&mut self) -> ParseResult<Expr> {
         match self.try_peek()?.kind {
             TokenKind::LCurly => {
                 let (block, span) = self.block()?;
@@ -176,7 +179,7 @@ impl<'input> Parser<'input> {
         }
     }
 
-    pub fn block(&mut self) -> ParseResult<(Vec<Expr>, Span)> {
+    fn block(&mut self) -> ParseResult<(Vec<Expr>, Span)> {
         self.delimited(
             TokenKind::LCurly,
             Self::expr,
@@ -185,7 +188,7 @@ impl<'input> Parser<'input> {
         )
     }
 
-    pub fn if_chain(&mut self) -> ParseResult<Expr> {
+    fn if_chain(&mut self) -> ParseResult<Expr> {
         let if_ = self.token(TokenKind::If)?;
         let cond = self.expr()?;
         let (true_block, true_block_span) = self.block()?;
@@ -225,7 +228,7 @@ impl<'input> Parser<'input> {
         })
     }
 
-    pub fn fn_args(&mut self) -> ParseResult<(Vec<Expr>, Span)> {
+    fn fn_args(&mut self) -> ParseResult<(Vec<Expr>, Span)> {
         self.delimited(
             TokenKind::LParen,
             Self::expr,
@@ -234,7 +237,7 @@ impl<'input> Parser<'input> {
         )
     }
 
-    pub fn let_(&mut self) -> ParseResult<Expr> {
+    fn let_(&mut self) -> ParseResult<Expr> {
         let let_ = self.token(TokenKind::Let)?;
         let ident = self.ident()?;
         let typepath = if self.maybe_token(TokenKind::Colon).is_some() {
@@ -252,7 +255,7 @@ impl<'input> Parser<'input> {
         })
     }
 
-    pub fn set(&mut self) -> ParseResult<Expr> {
+    fn set(&mut self) -> ParseResult<Expr> {
         let ident = self.ident()?;
 
         let assign_op = self.try_peek()?;
@@ -402,15 +405,15 @@ impl<'input> Parser<'input> {
         }
     }
 
-    pub fn ident(&mut self) -> ParseResult<Ident> {
+    fn ident(&mut self) -> ParseResult<Ident> {
         let tok = self.token(TokenKind::Ident)?;
         Ok(Ident {
-            name: self.symbols.get_or_intern(self.lexer.source(&tok)),
+            sym: self.symbols.get_or_intern(self.lexer.source(&tok)),
             span: tok.span,
         })
     }
 
-    pub fn typepath(&mut self) -> ParseResult<IdentPath> {
+    fn typepath(&mut self) -> ParseResult<IdentPath> {
         let head = self.ident()?;
         let mut span = head.span;
         let mut path = vec![head];
@@ -422,7 +425,7 @@ impl<'input> Parser<'input> {
         Ok(IdentPath { path, span })
     }
 
-    pub fn lit(&mut self) -> ParseResult<Literal> {
+    fn lit(&mut self) -> ParseResult<Literal> {
         let tok = self.try_peek()?;
         let src = self.lexer.source(&tok);
 
@@ -505,8 +508,8 @@ mod tests {
 
         let want = Ok(IdentPath {
             path: vec![
-                Ident { name: sym("Foo"), span: (0, 3) },
-                Ident { name: sym("Bar"), span: (4, 7) },
+                Ident { sym: sym("Foo"), span: (0, 3) },
+                Ident { sym: sym("Bar"), span: (4, 7) },
             ],
             span: (0, 7),
         });
@@ -574,11 +577,11 @@ mod tests {
                 Box::new(Expr {
                     span: (0, 13),
                     kind: ExprKind::FnCall(
-                        Ident { span: (0, 3), name: sym("foo") },
+                        Ident { sym: sym("foo"), span: (0, 3) },
                         vec![
                             Expr {
                                 span: (4, 5),
-                                kind: ExprKind::Ident(Ident { span: (4, 5), name: sym("n") }),
+                                kind: ExprKind::Ident(Ident { sym: sym("n"), span: (4, 5) }),
                             },
                             Expr {
                                 span: (7, 12),
@@ -612,12 +615,12 @@ fn the_answer(): UInt {
 
         let want = Ok(Item::FnDef(FnDef {
             name: Ident {
-                name: sym("the_answer"),
+                sym: sym("the_answer"),
                 span: (4, 14),
             },
             params: vec![],
             return_typepath: Some(IdentPath {
-                path: vec![Ident { name: sym("UInt"), span: (18, 22) }],
+                path: vec![Ident { sym: sym("UInt"), span: (18, 22) }],
                 span: (18, 22),
             }),
             body: vec![Expr {
@@ -627,6 +630,7 @@ fn the_answer(): UInt {
                 }),
                 span: (29, 31),
             }],
+            span: (1, 33),
         }));
         assert_eq!(got, want);
     }

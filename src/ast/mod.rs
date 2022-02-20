@@ -1,5 +1,10 @@
 use crate::intern::Symbol;
 
+pub mod lex;
+pub mod parse;
+
+// TODO: Span and Ident should probably be moved
+
 pub type Span = (usize, usize);
 
 // TODO: Make a HasSpan trait? Typepath can calculate its own span
@@ -11,6 +16,17 @@ pub struct Spanned<T> {
 }
 
 pub type Literal = Spanned<LiteralKind>;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Module {
+    pub items: Vec<Item>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Item {
+    FnDef(FnDef),
+    Import(IdentPath),
+}
 
 // TODO: Should I make this more specific (i.e. have Int, IntHex, ...) or more general?
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -25,7 +41,7 @@ pub enum LiteralKind {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Ident {
     pub span: Span,
-    pub name: Symbol,
+    pub sym: Symbol,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -40,12 +56,7 @@ pub struct FnDef {
     pub params: Vec<(Ident, IdentPath)>,
     pub return_typepath: Option<IdentPath>,
     pub body: Block,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Item {
-    FnDef(FnDef),
-    Import(IdentPath),
+    pub span: Span,
 }
 
 pub type Expr = Spanned<ExprKind>;

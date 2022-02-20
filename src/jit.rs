@@ -5,18 +5,23 @@ use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataContext, Linkage, Module};
 
 use crate::{
-    intern::{Symbol, SymbolInterner},
-    ir::{self, BinOp, Expr, ExprKind, Literal, LiteralKind},
-    ty::{self, Ty, TyKind},
+    intern::SymbolInterner,
+    ir::{
+        self,
+        registry::{Registry, TypeId, VariableId},
+        BinOp, Expr, ExprKind, Literal, LiteralKind,
+    },
+    ty::{self, TyKind, Type},
 };
 
 // TODO: The *Description naming scheme kinda sucks
 
 // TODO: This could just be a Vec really
+#[derive(Debug)]
 struct TypeDescription(Vec<types::Type>);
 
 impl TypeDescription {
-    fn from_ty(ty: Ty<'_>) -> Self {
+    fn from_ty(ty: &Type) -> Self {
         // TODO: How do I determine the "native size" in general?
         match &ty.kind {
             TyKind::Int(int_ty) => match int_ty {
@@ -40,7 +45,14 @@ impl TypeDescription {
             },
             TyKind::Unit => Self(Vec::new()),
             TyKind::String => Self(Vec::from([types::R64, types::I64])),
-            TyKind::Tuple(_) => todo!(),
+            TyKind::Tuple(types) => Self(
+                // TODO: Is this correct?
+                types
+                    .iter()
+                    .map(|ty| TypeDescription::from_ty(ty).0)
+                    .flatten()
+                    .collect(),
+            ),
             TyKind::Struct(_) => todo!(),
         }
     }
@@ -54,8 +66,10 @@ impl TypeDescription {
     }
 }
 
+#[derive(Debug)]
 struct VariableDescription(Vec<Variable>);
 
+#[derive(Debug)]
 struct ValueDescription(Vec<Value>);
 
 impl ValueDescription {
@@ -80,11 +94,13 @@ pub struct JIT<'ctx> {
     /// The module, with the jit backend, which manages the JIT'd functions.
     module: JITModule,
 
+    // My Stuff
     symbols: &'ctx SymbolInterner,
+    registry: &'ctx Registry,
 }
 
 impl<'ctx> JIT<'ctx> {
-    pub fn new(symbols: &'ctx SymbolInterner) -> Self {
+    pub fn new(symbols: &'ctx SymbolInterner, registry: &'ctx Registry) -> Self {
         let builder = JITBuilder::new(cranelift_module::default_libcall_names());
         let module = JITModule::new(builder);
         Self {
@@ -94,15 +110,22 @@ impl<'ctx> JIT<'ctx> {
             module,
 
             symbols,
+            registry,
         }
     }
 
-    pub fn compile(&mut self, func: &ir::FnDef) -> anyhow::Result<*const u8> {
+    pub fn compile(&mut self, module: &ir::Module) -> anyhow::Result<*const u8> {
+        let func = if let &[ir::Item::Function(func)] = module.items.as_slice() {
+            self.registry.get_function(func)
+        } else {
+            panic!("only support a single function right now");
+        };
+
         self.translate(func)?;
 
         // Next, declare the function to jit. Functions must be declared before they can be called,
         // or defined.
-        let func_name = self.symbols.resolve(&func.name.name);
+        let func_name = self.symbols.resolve(&func.name.sym);
         let id = self
             .module
             .declare_function(func_name, Linkage::Export, &self.ctx.func.signature)
@@ -126,9 +149,18 @@ impl<'ctx> JIT<'ctx> {
 
         Ok(code)
     }
+}
 
+// Helpers
+impl<'ctx> JIT<'ctx> {
+    fn get_type_desc(&self, ty_id: TypeId) -> TypeDescription {
+        TypeDescription::from_ty(self.registry.get_type(ty_id))
+    }
+}
+
+impl<'ctx> JIT<'ctx> {
     /// Create a zero-initialized data section.
-    pub fn create_data(&mut self, name: &str, contents: Vec<u8>) -> Result<&[u8], String> {
+    fn create_data(&mut self, name: &str, contents: Vec<u8>) -> Result<&[u8], String> {
         // The steps here are analogous to `compile`, except that data is much simpler than
         // functions.
         self.data_ctx.define(contents.into_boxed_slice());
@@ -147,9 +179,9 @@ impl<'ctx> JIT<'ctx> {
     }
 
     // Translate from toy-language AST nodes into Cranelift IR.
-    fn translate(&mut self, func: &ir::FnDef) -> anyhow::Result<()> {
-        for (_name, typ) in &func.params {
-            let type_desc = TypeDescription::from_ty(typ.ty);
+    fn translate(&mut self, func: &ir::Function) -> anyhow::Result<()> {
+        for (_name, ty) in &func.params {
+            let type_desc = self.get_type_desc(ty.id);
             self.ctx
                 .func
                 .signature
@@ -159,7 +191,7 @@ impl<'ctx> JIT<'ctx> {
 
         // Our toy language currently only supports one return value, though Cranelift is designed
         // to support more.
-        let type_desc = TypeDescription::from_ty(func.return_ty.ty);
+        let type_desc = self.get_type_desc(func.return_ty.id);
         self.ctx
             .func
             .signature
@@ -189,8 +221,9 @@ impl<'ctx> JIT<'ctx> {
             variables: HashMap::new(),
             module: &mut self.module,
             symbols: self.symbols,
+            registry: self.registry,
         };
-        let return_value = trans.translate_block(func.return_ty.ty, &func.body);
+        let return_value = trans.translate_block(func.return_ty.id, &func.body);
 
         // Emit the return instruction.
         trans.builder.ins().return_(&return_value.0);
@@ -204,10 +237,19 @@ impl<'ctx> JIT<'ctx> {
 /// A collection of state used for translating from toy-language AST nodes into Cranelift IR.
 struct FunctionTranslator<'parent> {
     builder: FunctionBuilder<'parent>,
-    variables: HashMap<Symbol, VariableDescription>,
+    variables: HashMap<VariableId, VariableDescription>,
     module: &'parent mut JITModule,
 
     symbols: &'parent SymbolInterner,
+    registry: &'parent Registry,
+}
+
+// TODO: This is duplicated from JIT. Find a way to fix that
+// Helpers
+impl<'parent> FunctionTranslator<'parent> {
+    fn get_type_desc(&self, ty_id: TypeId) -> TypeDescription {
+        TypeDescription::from_ty(self.registry.get_type(ty_id))
+    }
 }
 
 impl<'a> FunctionTranslator<'a> {
@@ -235,12 +277,9 @@ impl<'a> FunctionTranslator<'a> {
 
             // ExprKind::Call(name, args) => self.translate_call(name, args),
             // ExprKind::GlobalDataAddr(name) => self.translate_global_data_addr(name),
-            ExprKind::Ident(ident) => {
+            ExprKind::Variable(id) => {
                 // `use_var` is used to read the value of a variable.
-                let variable_desc = self
-                    .variables
-                    .get(&ident.name)
-                    .expect("variable not defined");
+                let variable_desc = self.variables.get(&id).expect("variable not defined");
                 ValueDescription(
                     variable_desc
                         .0
@@ -250,24 +289,24 @@ impl<'a> FunctionTranslator<'a> {
                 )
             }
 
-            ExprKind::Let(ident, expr) => {
-                let type_desc = TypeDescription::from_ty(expr.ty);
+            ExprKind::Let(var_id, init_expr) => {
+                // TODO: This is a nightmare to maintain. See if I can clean up the way it works
+                let type_desc = self.get_type_desc(init_expr.ty);
                 let mut var_vec = Vec::with_capacity(type_desc.0.len());
-                let value_desc = self.translate_expr(expr.as_ref());
+                let value_desc = self.translate_expr(init_expr.as_ref());
                 for (&ty, &value) in type_desc.0.iter().zip(value_desc.0.iter()) {
-                    let var = Variable::new(self.variables.len());
+                    let var = Variable::new(self.variables.len() + var_vec.len());
                     self.builder.declare_var(var, ty);
                     self.builder.def_var(var, value);
                     var_vec.push(var);
                 }
-                self.variables
-                    .insert(ident.name, VariableDescription(var_vec));
+                self.variables.insert(*var_id, VariableDescription(var_vec));
                 ValueDescription::empty()
             }
 
-            ExprKind::Set(ident, expr) => {
+            ExprKind::Set(var_id, expr) => {
                 let value_desc = self.translate_expr(expr.as_ref());
-                let var_desc = self.variables.get(&ident.name).unwrap();
+                let var_desc = self.variables.get(var_id).unwrap();
                 for (&var, &value) in var_desc.0.iter().zip(value_desc.0.iter()) {
                     self.builder.def_var(var, value);
                 }
@@ -290,14 +329,14 @@ impl<'a> FunctionTranslator<'a> {
     fn translate_literal(&mut self, lit: &Literal) -> ValueDescription {
         match &lit.kind {
             LiteralKind::Int(val) => {
-                if let &[ty] = TypeDescription::from_ty(lit.ty).0.as_slice() {
+                if let &[ty] = self.get_type_desc(lit.ty).0.as_slice() {
                     ValueDescription(Vec::from([self.builder.ins().iconst(ty, *val as i64)]))
                 } else {
                     panic!("I think this should be impossible");
                 }
             }
             LiteralKind::Bool(val) => {
-                if let &[ty] = TypeDescription::from_ty(lit.ty).0.as_slice() {
+                if let &[ty] = self.get_type_desc(lit.ty).0.as_slice() {
                     ValueDescription(Vec::from([self.builder.ins().bconst(ty, *val)]))
                 } else {
                     panic!("I think this should be impossible");
@@ -305,7 +344,7 @@ impl<'a> FunctionTranslator<'a> {
             }
             LiteralKind::Float(val) => {
                 let input = self.symbols.resolve(val).replace('_', "");
-                match lit.ty.kind {
+                match self.registry.get_type(lit.ty).kind {
                     // TODO: Move parsing logic somewhere else
                     TyKind::Float(ty::FloatTy::F32) => {
                         let val = f32::from_str(&input).unwrap();
@@ -330,7 +369,7 @@ impl<'a> FunctionTranslator<'a> {
     ) -> ValueDescription {
         let condition_value = self.translate_expr(condition);
 
-        let type_desc = TypeDescription::from_ty(then_expr.ty);
+        let type_desc = self.get_type_desc(then_expr.ty);
 
         let then_block = self.builder.create_block();
         let else_block = self.builder.create_block();
@@ -379,8 +418,8 @@ impl<'a> FunctionTranslator<'a> {
         ValueDescription(Vec::from(self.builder.block_params(merge_block)))
     }
 
-    fn translate_block(&mut self, ty: Ty, exprs: &[Expr]) -> ValueDescription {
-        let type_desc = TypeDescription::from_ty(ty);
+    fn translate_block(&mut self, ty: TypeId, exprs: &[Expr]) -> ValueDescription {
+        let type_desc = self.get_type_desc(ty);
 
         // Create a block which will have this value calculated
         let next_block = self.builder.create_block();

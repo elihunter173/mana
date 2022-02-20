@@ -9,8 +9,8 @@ use codespan_reporting::{
 };
 
 use crate::{
-    ir::{LoweringError, LoweringErrorKind},
-    parse::{ParseError, ParseErrorKind},
+    ast::parse::{ParseError, ParseErrorKind},
+    ir::lower::{LoweringError, LoweringErrorKind},
 };
 
 pub type Diagnostic = diagnostic::Diagnostic<()>;
@@ -48,6 +48,10 @@ pub fn diagnostic_from_lowering_error(err: &LoweringError) -> Diagnostic {
             .with_message("invalid type")
             .with_labels(vec![Label::primary((), err.span.0..err.span.1)
                 .with_message(format!("type `{:?}` cannot be used here", ty))]),
+        LoweringErrorKind::DuplicateItem => Diagnostic::new(Severity::Error)
+            .with_message("duplicate item")
+            .with_labels(vec![Label::primary((), err.span.0..err.span.1)
+                .with_message("TODO: Improve error message and really whole error")]),
     }
 }
 

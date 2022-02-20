@@ -12,9 +12,6 @@ mod diagnostic;
 mod intern;
 mod ir;
 mod jit;
-mod lex;
-mod parse;
-mod resolve;
 mod ty;
 // TODO: Re-enable salsa
 // mod queries;
@@ -24,7 +21,11 @@ use std::fs;
 use clap::{Parser, Subcommand};
 // use rustyline::{error::ReadlineError, Editor};
 
-use crate::{jit::JIT, lex::Lexer};
+use crate::{
+    ast::{lex::Lexer, parse::Parser as ManaParser},
+    ir::lower::Lowerer,
+    jit::JIT,
+};
 
 #[derive(Parser)]
 #[clap(version = "0.1.0", author = "Eli W. Hunter <elihunter173@gmail.com>")]
@@ -62,12 +63,10 @@ fn parse_and_print(path: &str) {
 
     let mut symbol_interner = intern::SymbolInterner::new();
 
-    // let mut db = DatabaseStruct::default();
-    // db.set_source_code(program.clone());
-    let mut parser = crate::parse::Parser::new(&code, &mut symbol_interner);
-    match parser.items() {
-        Ok(items) => {
-            for x in items {
+    let mut parser = ManaParser::new(&code, &mut symbol_interner);
+    match parser.module() {
+        Ok(module) => {
+            for x in &module.items {
                 println!("{:?}", x);
             }
         }
@@ -91,19 +90,13 @@ fn run(path: &str) {
     let code = fs::read_to_string(path).unwrap();
 
     let mut symbol_interner = intern::SymbolInterner::new();
-    let mut resolver = resolve::Resolver::with_primitives(&mut symbol_interner);
+    let mut registry = ir::registry::Registry::with_basic_types();
+    let mut resolver = ir::resolve::Resolver::with_prelude(&mut symbol_interner, &mut registry);
 
-    let mut parser = crate::parse::Parser::new(&code, &mut symbol_interner);
+    let mut parser = ManaParser::new(&code, &mut symbol_interner);
 
-    let func = match parser.items() {
-        Ok(mut items) => {
-            assert_eq!(items.len(), 1);
-            if let ast::Item::FnDef(func) = items.pop().unwrap() {
-                func
-            } else {
-                panic!("only support one function right now");
-            }
-        }
+    let module = match parser.module() {
+        Ok(module) => module,
         Err(err) => {
             crate::diagnostic::emit(
                 &codespan_reporting::files::SimpleFile::new(path, &code),
@@ -113,12 +106,13 @@ fn run(path: &str) {
         }
     };
 
-    let lowering_ctx = ir::LoweringContext {
+    let mut lowerer = Lowerer {
         resolver: &mut resolver,
-        symbol_interner: &symbol_interner,
+        symbol_interner: &mut symbol_interner,
+        registry: &mut registry,
     };
-    let func = match lowering_ctx.lower_fn_def(&func) {
-        Ok(func) => func,
+    let module = match lowerer.lower_module(&module) {
+        Ok(module) => module,
         Err(err) => {
             crate::diagnostic::emit(
                 &codespan_reporting::files::SimpleFile::new(path, &code),
@@ -128,8 +122,8 @@ fn run(path: &str) {
         }
     };
 
-    let mut jit = JIT::new(&symbol_interner);
-    let code_ptr = jit.compile(&func).unwrap();
+    let mut jit = JIT::new(&symbol_interner, &registry);
+    let code_ptr = jit.compile(&module).unwrap();
 
     // SAFETY: Whee! Hopefully the JIT compiler actually did compile to an arg-less and
     // return-value-less procedure

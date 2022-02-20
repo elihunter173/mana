@@ -357,7 +357,7 @@ mod test {
             .map(|&(start, kind, end)| Token { kind, span: (start, end) })
             .collect();
         let actual: Vec<_> = Lexer::new(input).collect();
-        assert_eq!(actual.as_slice(), expected.as_slice());
+        assert_eq!(expected.as_slice(), actual.as_slice());
     }
 
     #[test]
@@ -494,7 +494,6 @@ fn foo() -> UInt {
 }
 "#,
             &[
-                (50, TokenKind::Newline, 51),
                 (51, TokenKind::Fn, 53),
                 (54, TokenKind::Ident, 57),
                 (57, TokenKind::LParen, 58),

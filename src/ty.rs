@@ -1,13 +1,11 @@
 use std::collections::BTreeMap;
 
-pub type Ty<'ctx> = &'ctx TyS;
-
 #[derive(Debug, PartialEq, Eq, Hash)]
-pub struct TyS {
+pub struct Type {
     pub kind: TyKind,
 }
 
-impl TyS {
+impl Type {
     pub fn is_numeric(&self) -> bool {
         match self.kind {
             TyKind::Int(_) | TyKind::UInt(_) | TyKind::Float(_) => true,
@@ -29,9 +27,9 @@ pub enum TyKind {
     String,
     // TODO: This should be an empty tuple sometime
     Unit,
-    Tuple(Vec<TyS>),
+    Tuple(Vec<Type>),
     // Key must be unique
-    Struct(BTreeMap<String, TyS>),
+    Struct(BTreeMap<String, Type>),
 }
 
 pub const DEFAULT_INT: IntTy = IntTy::I32;
