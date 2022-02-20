@@ -138,7 +138,7 @@ impl<'ctx> Lowerer<'ctx> {
                 self.lower_let(expr.span, var_id, typepath.as_ref(), init_expr)
             }
             ast::ExprKind::Set(var_id, set_expr) => self.lower_set(expr.span, var_id, set_expr),
-            ast::ExprKind::FnCall(_, _) => todo!("I need to add the concept of scope for this"),
+            ast::ExprKind::FnCall(ident, args) => self.lower_fn_call(expr.span, ident, args),
             ast::ExprKind::Block(block) => {
                 let (ty, block) = self.lower_block(block)?;
                 Ok(Expr {
@@ -349,6 +349,32 @@ impl<'ctx> Lowerer<'ctx> {
             span,
             ty: self.registry.unit(),
             kind: ExprKind::Set(var_id, Box::new(expr)),
+        })
+    }
+
+    fn lower_fn_call(
+        &mut self,
+        span: Span,
+        ident: &ast::Ident,
+        args: &[ast::Expr],
+    ) -> LoweringResult<Expr> {
+        let id = self.resolver.resolve(&ident.sym).ok_or(LoweringError {
+            kind: LoweringErrorKind::UnknownVariable(*ident),
+            span: ident.span,
+        })?;
+        let func_id = id
+            .as_function_id()
+            .expect("must be function. TODO: rework entire diagnostics");
+
+        let mut lowered_args = Vec::with_capacity(args.len());
+        for expr in args {
+            lowered_args.push(self.lower_expr(expr)?);
+        }
+
+        Ok(Expr {
+            span,
+            ty: self.registry.unit(),
+            kind: ExprKind::FnCall(func_id, lowered_args),
         })
     }
 
