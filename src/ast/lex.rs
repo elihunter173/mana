@@ -308,8 +308,6 @@ impl<'input> Iterator for Lexer<'input> {
                 }
             }
 
-            // TODO: Handle errors
-
             // Normal token
             Some(lexeme) => Some(lexeme),
             None => None,

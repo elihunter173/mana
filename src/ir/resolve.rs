@@ -8,6 +8,7 @@ use crate::{
 use super::registry::{FunctionId, Registry, TypeId, VariableId};
 
 // TODO: I could do a smarter representation of these Ids (u32 with high bits as discriminant?)
+// TODO: Unify FunctionId and VariableIds
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum ObjectId {
     Type(TypeId),
@@ -45,7 +46,6 @@ pub enum ResolverError {
     DuplicateItem,
 }
 
-// TODO: Maybe split up the resolver and the registry (i.e storage)?
 #[derive(Debug)]
 pub struct Resolver {
     // TODO: Use non-empty?

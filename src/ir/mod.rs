@@ -7,21 +7,15 @@ use crate::{
     intern::{Symbol, SymbolInterner},
 };
 
-use self::{
-    registry::{FunctionId, TypeId, VariableId},
-    resolve::ObjectId,
-};
+use self::registry::{FunctionId, TypeId, VariableId};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Module {
     pub items: Vec<Item>,
 }
 
-// TODO: Replace Types with object ids probably
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Item {
-    // TODO: Holy fuck what is the ownership situation of function definitions
     Function(FunctionId),
     // TODO: Add imports
 }
@@ -60,12 +54,10 @@ pub enum ExprKind {
     Set(VariableId, Box<Expr>),
 
     // TODO: Add dot expressions... Need to figure it out in parser
-    // TODO: This shouldn't be an ObjectId I don't think
-    FnCall(ObjectId, Vec<Expr>),
+    FnCall(FunctionId, Vec<Expr>),
     Block(Block),
     If {
         cond: Box<Expr>,
-        // TODO: Maybe make this a Block type?
         then_expr: Box<Expr>,
         else_expr: Option<Box<Expr>>,
     },
@@ -82,7 +74,8 @@ pub type Block = Vec<Expr>;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Literal {
     pub span: Span,
-    // TODO: I need to rethink this so I can more easily convert to a type
+    // TODO: I need to rethink how I type literals so that I can have untyped literals like Go
+    // where they become whatever type is requested of them or their default type
     pub kind: LiteralKind,
     pub ty: TypeId,
 }

@@ -3,11 +3,10 @@ use crate::intern::Symbol;
 pub mod lex;
 pub mod parse;
 
-// TODO: Span and Ident should probably be moved
+// TODO: Should Span be moved?
+// TODO: Make a HasSpan trait? Various things can calculate their own span
 
 pub type Span = (usize, usize);
-
-// TODO: Make a HasSpan trait? Typepath can calculate its own span
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Spanned<T> {
@@ -37,7 +36,6 @@ pub enum LiteralKind {
     String(Symbol),
 }
 
-// TODO: Move this to a different module?
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Ident {
     pub span: Span,
@@ -76,7 +74,6 @@ pub enum ExprKind {
     // TODO: Make this a struct?
     If {
         cond: Box<Expr>,
-        // TODO: Maybe make this a Block type?
         then_expr: Box<Expr>,
         else_expr: Option<Box<Expr>>,
     },

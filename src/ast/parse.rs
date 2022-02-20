@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use crate::{
     ast::{
         lex::{Lexer, Token, TokenKind},
@@ -23,6 +21,7 @@ pub enum ParseErrorKind {
 
 type ParseResult<T> = Result<T, ParseError>;
 
+// TODO: Collect multiple errors
 pub struct Parser<'input> {
     code: &'input str,
     lexer: Lexer<'input>,
@@ -64,7 +63,6 @@ impl<'input> Parser<'input> {
         Ok(tok)
     }
 
-    // TODO: Is this useful?
     fn maybe_token(&mut self, kind: TokenKind) -> Option<Token> {
         let tok = self.lexer.peek()?;
         if tok.kind != kind {
@@ -91,8 +89,7 @@ impl<'input> Parser<'input> {
             parsed.push(parser(self)?);
             while self.maybe_token(delimiter).is_some() {
                 // This allows for trailing delimiters
-                // TODO: This is really hard to read
-                // If the token we're peeking at is what we want
+                // If the token we're peeking at is what we want. Try to rewrite this if possible
                 if self.lexer.peek().filter(|tok| tok.kind == end).is_some() {
                     break;
                 }
@@ -191,7 +188,7 @@ impl<'input> Parser<'input> {
     fn if_chain(&mut self) -> ParseResult<Expr> {
         let if_ = self.token(TokenKind::If)?;
         let cond = self.expr()?;
-        let (true_block, true_block_span) = self.block()?;
+        let (then_block, true_block_span) = self.block()?;
 
         let false_expr = if self.maybe_token(TokenKind::Else).is_some() {
             let tok = self.try_peek()?;
@@ -219,7 +216,7 @@ impl<'input> Parser<'input> {
             kind: ExprKind::If {
                 cond: Box::new(cond),
                 then_expr: Box::new(Expr {
-                    kind: ExprKind::Block(true_block),
+                    kind: ExprKind::Block(then_block),
                     span: true_block_span,
                 }),
                 else_expr: false_expr.map(Box::new),
@@ -434,12 +431,9 @@ impl<'input> Parser<'input> {
             TokenKind::IntHex => LiteralKind::Int(parse_int(&src[2..], 16)),
             TokenKind::IntOct => LiteralKind::Int(parse_int(&src[2..], 8)),
             TokenKind::IntBin => LiteralKind::Int(parse_int(&src[2..], 2)),
-            TokenKind::Float => LiteralKind::Float(self.symbols.get_or_intern(src)),
+            TokenKind::Float => LiteralKind::Float(self.symbols.get_or_intern(&parse_float(src))),
             TokenKind::String => {
-                // TODO: Make this independent
-                // Unescape quotes
-                let val = parse_string(src);
-                LiteralKind::String(self.symbols.get_or_intern(&val))
+                LiteralKind::String(self.symbols.get_or_intern(&parse_string(src)))
             }
             TokenKind::True => LiteralKind::Bool(true),
             TokenKind::False => LiteralKind::Bool(false),
@@ -456,7 +450,7 @@ impl<'input> Parser<'input> {
     }
 }
 
-// TODO: Return Results for these wrater tha panicking
+// TODO: Return Results for these rather than panicking
 fn parse_int(digits: &str, radix: u32) -> u128 {
     let mut num = 0;
     for b in digits.bytes() {
@@ -474,10 +468,10 @@ fn parse_int(digits: &str, radix: u32) -> u128 {
     num
 }
 
-fn parse_float(input: &str) -> f64 {
+// TODO: Actually use parse_float
+fn parse_float(input: &str) -> String {
     // TODO: Use better parsing logic
-    let input = input.replace('_', "");
-    f64::from_str(&input).unwrap()
+    input.replace('_', "")
 }
 
 fn parse_string(input: &str) -> String {
@@ -493,7 +487,6 @@ mod tests {
 
     fn run_parser<T: 'static>(
         code: &str,
-        // TODO: Figure out why Parser::X doesn't work
         node: impl FnOnce(&mut Parser) -> T,
     ) -> (T, impl FnMut(&str) -> Symbol) {
         let mut symbols = SymbolInterner::new();

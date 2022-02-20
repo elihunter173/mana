@@ -24,9 +24,8 @@ pub enum TyKind {
     Int(IntTy),
     UInt(UIntTy),
     Float(FloatTy),
+    // TODO: A String is really a struct...
     String,
-    // TODO: This should be an empty tuple sometime
-    Unit,
     Tuple(Vec<Type>),
     // Key must be unique
     Struct(BTreeMap<String, Type>),

@@ -1,8 +1,6 @@
 #![feature(map_try_insert)]
 #![feature(hash_set_entry)]
 #![feature(iter_intersperse)]
-// I'm working on things and those errors are noisy
-#![allow(dead_code)]
 // matches!() sometimes doesn't work with rust-analyzer, and I think the code is similarly
 // readable, so I just ignore matches!()
 #![allow(clippy::match_like_matches_macro)]
@@ -143,7 +141,6 @@ fn repl() {
         match readline {
             Ok(line) => {
                 rl.add_history_entry(line.as_str());
-                // TODO: Expand line
                 let filename = format!("line {}", linenum);
 
                 let mut parser = crate::parse::Parser::new(&line);

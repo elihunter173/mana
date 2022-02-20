@@ -16,13 +16,12 @@ use crate::{
 
 // TODO: The *Description naming scheme kinda sucks
 
-// TODO: This could just be a Vec really
 #[derive(Debug)]
 struct TypeDescription(Vec<types::Type>);
 
 impl TypeDescription {
     fn from_ty(ty: &Type) -> Self {
-        // TODO: How do I determine the "native size" in general?
+        // TODO: How do I determine the I/USize in general?
         match &ty.kind {
             TyKind::Int(int_ty) => match int_ty {
                 ty::IntTy::ISize => Self(Vec::from([types::I64])),
@@ -43,10 +42,8 @@ impl TypeDescription {
                 ty::FloatTy::F32 => Self(Vec::from([types::F32])),
                 ty::FloatTy::F64 => Self(Vec::from([types::F64])),
             },
-            TyKind::Unit => Self(Vec::new()),
             TyKind::String => Self(Vec::from([types::R64, types::I64])),
             TyKind::Tuple(types) => Self(
-                // TODO: Is this correct?
                 types
                     .iter()
                     .map(|ty| TypeDescription::from_ty(ty).0)
@@ -259,11 +256,12 @@ impl<'a> FunctionTranslator<'a> {
         match &expr.kind {
             ExprKind::Literal(lit) => self.translate_literal(lit),
             ExprKind::Binary(op, lhs, rhs) => {
+                // TODO: This indexing is a hack
+                // TODO: Look at the type to determine how to implement the function
                 let lhs = self.translate_expr(lhs.as_ref()).0[0];
                 let rhs = self.translate_expr(rhs.as_ref()).0[0];
                 let ins = self.builder.ins();
                 let val = match op {
-                    // TODO: Figure out how addition works with types
                     BinOp::Add => ins.iadd(lhs, rhs),
                     BinOp::Sub => ins.isub(lhs, rhs),
                     BinOp::Mul => ins.imul(lhs, rhs),
@@ -343,7 +341,7 @@ impl<'a> FunctionTranslator<'a> {
                 }
             }
             LiteralKind::Float(val) => {
-                let input = self.symbols.resolve(val).replace('_', "");
+                let input = self.symbols.resolve(val);
                 match self.registry.get_type(lit.ty).kind {
                     // TODO: Move parsing logic somewhere else
                     TyKind::Float(ty::FloatTy::F32) => {
@@ -375,7 +373,6 @@ impl<'a> FunctionTranslator<'a> {
         let else_block = self.builder.create_block();
         let merge_block = self.builder.create_block();
 
-        // TODO: We just assume that you return an int
         for &ty in type_desc.types() {
             self.builder.append_block_param(merge_block, ty);
         }
