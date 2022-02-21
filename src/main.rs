@@ -36,6 +36,7 @@ struct Opts {
 enum ManaCommand {
     Lex { path: String },
     Parse { path: String },
+    DumpIr { path: String },
     Run { path: String },
 }
 
@@ -47,32 +48,16 @@ fn main() {
             lex(&path);
         }
         Some(ManaCommand::Parse { path }) => {
-            parse_and_print(&path);
+            dump_ast(&path);
+        }
+        Some(ManaCommand::DumpIr { path }) => {
+            dump_ir(&path);
         }
         Some(ManaCommand::Run { path }) => {
             run(&path);
         }
         None => todo!("repl"), // repl()
     }
-}
-
-fn parse_and_print(path: &str) {
-    let code = fs::read_to_string(path).unwrap();
-
-    let mut symbol_interner = intern::SymbolInterner::new();
-
-    let mut parser = ManaParser::new(&code, &mut symbol_interner);
-    match parser.module() {
-        Ok(module) => {
-            for x in &module.items {
-                println!("{:?}", x);
-            }
-        }
-        Err(err) => crate::diagnostic::emit(
-            &codespan_reporting::files::SimpleFile::new(path, &code),
-            &crate::diagnostic::diagnostic_from_parse_error(&err),
-        ),
-    };
 }
 
 fn lex(path: &str) {
@@ -84,15 +69,29 @@ fn lex(path: &str) {
     }
 }
 
-fn run(path: &str) {
+fn dump_ast(path: &str) {
     let code = fs::read_to_string(path).unwrap();
 
     let mut symbol_interner = intern::SymbolInterner::new();
-    let mut registry = ir::registry::Registry::with_basic_types();
-    let mut resolver = ir::resolve::Resolver::with_prelude(&mut symbol_interner, &mut registry);
-
     let mut parser = ManaParser::new(&code, &mut symbol_interner);
+    let module = match parser.module() {
+        Ok(module) => module,
+        Err(err) => {
+            crate::diagnostic::emit(
+                &codespan_reporting::files::SimpleFile::new(path, &code),
+                &crate::diagnostic::diagnostic_from_parse_error(&err),
+            );
+            return;
+        }
+    };
+    println!("{:?}", module);
+}
 
+fn dump_ir(path: &str) {
+    let code = fs::read_to_string(path).unwrap();
+
+    let mut symbol_interner = intern::SymbolInterner::new();
+    let mut parser = ManaParser::new(&code, &mut symbol_interner);
     let module = match parser.module() {
         Ok(module) => module,
         Err(err) => {
@@ -104,6 +103,46 @@ fn run(path: &str) {
         }
     };
 
+    let mut registry = ir::registry::Registry::with_basic_types();
+    let mut resolver = ir::resolve::Resolver::with_prelude(&mut symbol_interner, &mut registry);
+    let mut lowerer = Lowerer {
+        resolver: &mut resolver,
+        symbol_interner: &mut symbol_interner,
+        registry: &mut registry,
+    };
+    let module = match lowerer.lower_module(&module) {
+        Ok(module) => module,
+        Err(err) => {
+            crate::diagnostic::emit(
+                &codespan_reporting::files::SimpleFile::new(path, &code),
+                &crate::diagnostic::diagnostic_from_lowering_error(&err),
+            );
+            return;
+        }
+    };
+
+    println!("{:?}", registry);
+    println!("{:?}", module);
+}
+
+fn run(path: &str) {
+    let code = fs::read_to_string(path).unwrap();
+
+    let mut symbol_interner = intern::SymbolInterner::new();
+    let mut parser = ManaParser::new(&code, &mut symbol_interner);
+    let module = match parser.module() {
+        Ok(module) => module,
+        Err(err) => {
+            crate::diagnostic::emit(
+                &codespan_reporting::files::SimpleFile::new(path, &code),
+                &crate::diagnostic::diagnostic_from_parse_error(&err),
+            );
+            return;
+        }
+    };
+
+    let mut registry = ir::registry::Registry::with_basic_types();
+    let mut resolver = ir::resolve::Resolver::with_prelude(&mut symbol_interner, &mut registry);
     let mut lowerer = Lowerer {
         resolver: &mut resolver,
         symbol_interner: &mut symbol_interner,
