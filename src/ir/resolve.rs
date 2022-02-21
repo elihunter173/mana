@@ -42,6 +42,7 @@ impl ObjectId {
     }
 }
 
+#[derive(Debug)]
 pub enum ResolverError {
     DuplicateItem,
 }

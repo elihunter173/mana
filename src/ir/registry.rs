@@ -1,5 +1,5 @@
 use crate::{
-    ir::{Function, Variable},
+    ir::{FunctionBody, FunctionSignature, Variable},
     ty::{FloatTy, TyKind, Type, DEFAULT_INT, DEFAULT_UINT},
 };
 
@@ -30,7 +30,7 @@ const STRING_TYPE_ID: TypeId = TypeId(5);
 #[derive(Debug)]
 pub struct Registry {
     types: Vec<Type>,
-    functions: Vec<Function>,
+    functions: Vec<(FunctionSignature, Option<FunctionBody>)>,
     variables: Vec<Variable>,
 }
 
@@ -71,8 +71,9 @@ impl Registry {
         &self.types[id.0]
     }
 
-    pub fn get_function(&self, id: FunctionId) -> &Function {
-        &self.functions[id.0]
+    pub fn get_function(&self, id: FunctionId) -> (&FunctionSignature, Option<&FunctionBody>) {
+        let (sig, body) = &self.functions[id.0];
+        (sig, body.as_ref())
     }
 
     pub fn get_variable(&self, id: VariableId) -> &Variable {
@@ -84,9 +85,13 @@ impl Registry {
         TypeId(self.types.len() - 1)
     }
 
-    pub fn register_function(&mut self, func: Function) -> FunctionId {
-        self.functions.push(func);
+    pub fn declare_function(&mut self, sig: FunctionSignature) -> FunctionId {
+        self.functions.push((sig, None));
         FunctionId(self.functions.len() - 1)
+    }
+
+    pub fn define_function(&mut self, func: FunctionId, body: FunctionBody) {
+        self.functions[func.0].1 = Some(body);
     }
 
     pub fn register_variable(&mut self, var: Variable) -> VariableId {

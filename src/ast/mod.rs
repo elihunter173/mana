@@ -84,10 +84,11 @@ pub type Block = Vec<Expr>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BinOp {
-    Mul,
-    Div,
     Add,
     Sub,
+    Mul,
+    Div,
+    Rem,
     Eq,
     Neq,
     Land,

@@ -260,6 +260,7 @@ impl<'input> Parser<'input> {
             TokenKind::MinusEq => Some(BinOp::Sub),
             TokenKind::StarEq => Some(BinOp::Mul),
             TokenKind::SlashEq => Some(BinOp::Div),
+            TokenKind::PercentEq => Some(BinOp::Rem),
             _ => {
                 return Err(ParseError {
                     kind: ParseErrorKind::UnexpectedToken(assign_op),
@@ -322,6 +323,7 @@ impl<'input> Parser<'input> {
             |token| match token.kind {
                 TokenKind::Star => Some(BinOp::Mul),
                 TokenKind::Slash => Some(BinOp::Div),
+                TokenKind::Percent => Some(BinOp::Rem),
                 _ => None,
             },
             // Tightest binding

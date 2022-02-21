@@ -35,7 +35,7 @@ pub struct Lowerer<'ctx> {
 
 impl<'ctx> Lowerer<'ctx> {
     // TODO: TypePaths shouldn't exist?
-    fn resolve_typepath(&self, typepath: &IdentPath) -> LoweringResult<Type> {
+    fn resolve_typepath(&self, typepath: &IdentPath) -> LoweringResult<TypePath> {
         // TODO: This is a hack
         let sym = typepath.path[0].sym;
         let obj = self.resolver.resolve(&sym).ok_or(LoweringError {
@@ -48,65 +48,108 @@ impl<'ctx> Lowerer<'ctx> {
             span: typepath.span,
         })?;
 
-        Ok(Type { id: ty, span: typepath.span })
+        Ok(TypePath { id: ty, span: typepath.span })
     }
 }
 
 impl<'ctx> Lowerer<'ctx> {
+    // TODO: Figure out how to declare everything before defining... Probably declare and then
+    // define
     pub fn lower_module(&mut self, module: &ast::Module) -> LoweringResult<Module> {
         self.resolver.enter_scope();
         let mut module_items = Vec::with_capacity(module.items.len());
+
+        // Declare all items
+        // TODO: This func_ids thing is a terrible way to declare and define I think. I'd like to
+        // be able to look up the items. Maybe I could use the resolver?
+        let mut func_ids = Vec::new();
         for item in &module.items {
             match item {
                 ast::Item::FnDef(fn_def) => {
-                    let func = self.lower_fn_def(fn_def)?;
-                    let func_span = func.span;
-                    let func_name = func.name.sym;
-                    let func_id = self.registry.register_function(func);
-                    self.resolver
-                        .define_function(func_name, func_id)
-                        .map_err(|err| match err {
-                            ResolverError::DuplicateItem => LoweringError {
-                                kind: LoweringErrorKind::DuplicateItem,
-                                span: func_span,
-                            },
-                        })?;
+                    let func_id = self.lower_fn_def_declare(fn_def)?;
+                    func_ids.push(func_id);
                     module_items.push(Item::Function(func_id))
                 }
-                ast::Item::Import(_) => unimplemented!(),
+                ast::Item::Import(_) => todo!("import statements"),
             }
         }
+
+        // Define all items
+        let mut func_ids = func_ids.iter();
+        for item in &module.items {
+            match item {
+                ast::Item::FnDef(fn_def) => {
+                    self.lower_fn_def_define(*func_ids.next().unwrap(), fn_def)?;
+                }
+                ast::Item::Import(_) => todo!("import statements"),
+            }
+        }
+
         self.resolver.exit_scope();
+
         Ok(Module { items: module_items })
     }
 
-    fn lower_fn_def(&mut self, fn_def: &ast::FnDef) -> LoweringResult<Function> {
+    // Lowers and defines function in resolver
+    fn lower_fn_def_declare(&mut self, fn_def: &ast::FnDef) -> LoweringResult<FunctionId> {
         let mut params = Vec::with_capacity(fn_def.params.len());
         for (ident, typepath) in &fn_def.params {
-            params.push((*ident, self.resolve_typepath(typepath)?));
+            let ty = self.resolve_typepath(typepath)?;
+            let var_id = self
+                .registry
+                .register_variable(Variable { ident: *ident, type_id: ty.id });
+            params.push(var_id);
         }
 
         let return_ty = if let Some(typepath) = &fn_def.return_typepath {
             self.resolve_typepath(typepath)?
         } else {
-            Type {
+            TypePath {
                 id: self.registry.unit(),
                 span: fn_def.name.span,
             }
         };
+
+        let func_id = self.registry.declare_function(FunctionSignature {
+            name: fn_def.name,
+            params,
+            return_ty,
+        });
+        self.resolver
+            .define_function(fn_def.name.sym, func_id)
+            .expect("TODO: handle errors");
+
+        Ok(func_id)
+    }
+
+    fn lower_fn_def_define(
+        &mut self,
+        func_id: FunctionId,
+        fn_def: &ast::FnDef,
+    ) -> LoweringResult<()> {
+        self.resolver.enter_scope();
+
+        let (sig, _) = self.registry.get_function(func_id);
+        for &var_id in &sig.params {
+            let sym = self.registry.get_variable(var_id).ident.sym;
+            self.resolver
+                .define_variable(sym, var_id)
+                .expect("TODO: handle errors better");
+        }
 
         let mut body = Vec::with_capacity(fn_def.body.len());
         for expr in &fn_def.body {
             body.push(self.lower_expr(expr)?);
         }
 
-        Ok(Function {
-            name: fn_def.name,
-            params,
-            return_ty,
-            body,
-            span: fn_def.span,
-        })
+        // TODO: Ensure that return type matches body
+        self.resolver.exit_scope();
+
+        let func_id = self
+            .registry
+            .define_function(func_id, FunctionBody { exprs: body });
+
+        Ok(func_id)
     }
 
     fn lower_expr(&mut self, expr: &ast::Expr) -> LoweringResult<Expr> {
@@ -120,7 +163,7 @@ impl<'ctx> Lowerer<'ctx> {
                 Ok(Expr {
                     span: ident.span,
                     kind: ExprKind::Variable(var_id),
-                    ty: self.registry.get_variable(var_id).ty,
+                    ty: self.registry.get_variable(var_id).type_id,
                 })
             }
 
@@ -163,10 +206,11 @@ impl<'ctx> Lowerer<'ctx> {
         right: &ast::Expr,
     ) -> LoweringResult<Expr> {
         let op = match op {
-            ast::BinOp::Mul => BinOp::Mul,
-            ast::BinOp::Div => BinOp::Div,
             ast::BinOp::Add => BinOp::Add,
             ast::BinOp::Sub => BinOp::Sub,
+            ast::BinOp::Mul => BinOp::Mul,
+            ast::BinOp::Div => BinOp::Div,
+            ast::BinOp::Rem => BinOp::Rem,
             ast::BinOp::Eq => BinOp::Eq,
             ast::BinOp::Neq => BinOp::Neq,
             ast::BinOp::Lt => BinOp::Lt,
@@ -182,7 +226,7 @@ impl<'ctx> Lowerer<'ctx> {
 
         // Type check
         let ty = match op {
-            BinOp::Mul | BinOp::Div | BinOp::Add | BinOp::Sub => {
+            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
                 // TODO: Eventually this should use our function call machinery
                 if !self.registry.get_type(left.ty).is_numeric() {
                     return Err(LoweringError {
@@ -312,7 +356,7 @@ impl<'ctx> Lowerer<'ctx> {
 
         let var_id = self
             .registry
-            .register_variable(Variable { ty: expr.ty, span: ident.span });
+            .register_variable(Variable { type_id: expr.ty, ident: *ident });
         self.resolver
             .define_variable(ident.sym, var_id)
             .map_err(|err| match err {
@@ -365,15 +409,17 @@ impl<'ctx> Lowerer<'ctx> {
         let func_id = id
             .as_function_id()
             .expect("must be function. TODO: rework entire diagnostics");
-
+        // TODO: Ensure function call matches signature
         let mut lowered_args = Vec::with_capacity(args.len());
         for expr in args {
             lowered_args.push(self.lower_expr(expr)?);
         }
 
+        let (sig, _) = self.registry.get_function(func_id);
+
         Ok(Expr {
             span,
-            ty: self.registry.unit(),
+            ty: sig.return_ty.id,
             kind: ExprKind::FnCall(func_id, lowered_args),
         })
     }

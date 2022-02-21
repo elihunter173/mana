@@ -22,18 +22,22 @@ pub enum Item {
 
 /// A resolved type. `span` is where the typepath is
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Type {
+pub struct TypePath {
     pub id: TypeId,
     pub span: Span,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Function {
+pub struct FunctionSignature {
     pub name: Ident,
-    pub params: Vec<(Ident, Type)>,
-    pub return_ty: Type,
-    pub body: Vec<Expr>,
-    pub span: Span,
+    pub params: Vec<VariableId>,
+    pub return_ty: TypePath,
+}
+
+// TODO: This should honestly just be an Expr (especially when I make the = syntax for functions)
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FunctionBody {
+    pub exprs: Vec<Expr>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -65,8 +69,8 @@ pub enum ExprKind {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Variable {
-    pub span: Span,
-    pub ty: TypeId,
+    pub ident: Ident,
+    pub type_id: TypeId,
 }
 
 pub type Block = Vec<Expr>;
@@ -90,10 +94,11 @@ pub enum LiteralKind {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BinOp {
-    Mul,
-    Div,
     Add,
     Sub,
+    Mul,
+    Div,
+    Rem,
     Eq,
     Neq,
     Lt,

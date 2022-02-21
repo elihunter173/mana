@@ -60,6 +60,10 @@ pub enum TokenKind {
     Slash,
     #[token("/=")]
     SlashEq,
+    #[token("%")]
+    Percent,
+    #[token("%=")]
+    PercentEq,
 
     // Keywords
     #[token("fn")]
@@ -177,6 +181,8 @@ impl fmt::Display for TokenKind {
             TokenKind::StarEq => "*=",
             TokenKind::Slash => "/",
             TokenKind::SlashEq => "/=",
+            TokenKind::Percent => "%",
+            TokenKind::PercentEq => "%=",
 
             TokenKind::Fn => "fn",
             TokenKind::Struct => "struct",
