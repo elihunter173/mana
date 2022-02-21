@@ -1,0 +1,17 @@
+#!/usr/bin/env mana run
+
+fn main(): Int {
+    tailrec_fib(6)
+}
+
+fn tailrec_fib(n: Int): Int {
+    tailrec_fib_helper(n, 0, 1)
+}
+
+fn tailrec_fib_helper(n: Int, a: Int, b: Int): Int {
+    if n == 0 {
+        a
+    } else {
+        tailrec_fib_helper(n - 1, a, a + b)
+    }
+}

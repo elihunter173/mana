@@ -1,0 +1,11 @@
+fn main(): Int {
+    looper(1, 0)
+}
+
+fn looper(n: Int, acc: Int): Int {
+    if n >= 1000 {
+        acc
+    } else {
+        looper(n + 1, acc)
+    }
+}
