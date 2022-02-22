@@ -1,7 +1,15 @@
+use core::fmt;
+
 use lasso::{Key, Rodeo, Spur};
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Symbol(Spur);
+
+impl fmt::Debug for Symbol {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Symbol").field(&self.0.into_usize()).finish()
+    }
+}
 
 unsafe impl Key for Symbol {
     fn into_usize(self) -> usize {

@@ -1,10 +1,11 @@
 fn main(): Int {
     let acc = 0
-    let n = 0
-    while n < 0 {
+    let n = 1
+    while (n < 1000) {
         if n % 3 == 0 or n % 5 == 0 {
             acc += n
         }
+        n += 1
     }
     acc
 }

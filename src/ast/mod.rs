@@ -69,6 +69,13 @@ pub enum ExprKind {
     Let(Ident, Option<IdentPath>, Box<Expr>),
     Set(Ident, Box<Expr>),
 
+    Loop(Box<Expr>),
+    // TODO: This isn't the correct representation of break. We need a reference to a loop or
+    // something like that
+    Break(Option<Box<Expr>>),
+    Continue(Option<Box<Expr>>),
+    Return(Option<Box<Expr>>),
+
     FnCall(Ident, Vec<Expr>),
     Block(Block),
     // TODO: Make this a struct?

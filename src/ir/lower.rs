@@ -175,12 +175,26 @@ impl<'ctx> Lowerer<'ctx> {
                     kind: ExprKind::Literal(lowered),
                 })
             }
+
             ast::ExprKind::Binary(op, left, right) => self.lower_binary(op, left, right),
             ast::ExprKind::Unary(op, expr) => self.lower_unary(op, expr),
+
             ast::ExprKind::Let(var_id, typepath, init_expr) => {
                 self.lower_let(expr.span, var_id, typepath.as_ref(), init_expr)
             }
             ast::ExprKind::Set(var_id, set_expr) => self.lower_set(expr.span, var_id, set_expr),
+
+            ast::ExprKind::Loop(loop_expr) => self.lower_loop(loop_expr),
+            ast::ExprKind::Break(break_expr) => {
+                self.lower_break(expr.span, break_expr.as_ref().map(|b| b.as_ref()))
+            }
+            ast::ExprKind::Continue(continue_expr) => {
+                self.lower_continue(expr.span, continue_expr.as_ref().map(|b| b.as_ref()))
+            }
+            ast::ExprKind::Return(return_expr) => {
+                self.lower_return(expr.span, return_expr.as_ref().map(|b| b.as_ref()))
+            }
+
             ast::ExprKind::FnCall(ident, args) => self.lower_fn_call(expr.span, ident, args),
             ast::ExprKind::Block(block) => {
                 let (ty, block) = self.lower_block(block)?;
@@ -190,6 +204,7 @@ impl<'ctx> Lowerer<'ctx> {
                     ty,
                 })
             }
+
             ast::ExprKind::If { cond, then_expr, else_expr } => self.lower_if(
                 expr.span,
                 cond,
@@ -394,6 +409,23 @@ impl<'ctx> Lowerer<'ctx> {
             ty: self.registry.unit(),
             kind: ExprKind::Set(var_id, Box::new(expr)),
         })
+    }
+
+    fn lower_loop(&mut self, expr: &ast::Expr) -> LoweringResult<Expr> {
+        todo!("lower loop")
+    }
+
+    // TODO: Figure out representation of break, continue, and return ir representation
+    fn lower_break(&mut self, span: Span, expr: Option<&ast::Expr>) -> LoweringResult<Expr> {
+        todo!("lower break")
+    }
+
+    fn lower_continue(&mut self, expr: Option<&ast::Expr>) -> LoweringResult<Expr> {
+        todo!("lower continue")
+    }
+
+    fn lower_return(&mut self, expr: Option<&ast::Expr>) -> LoweringResult<Expr> {
+        todo!("lower return")
     }
 
     fn lower_fn_call(

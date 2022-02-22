@@ -170,12 +170,20 @@ impl<'input> Parser<'input> {
                 let (block, span) = self.block()?;
                 Ok(Expr { kind: ExprKind::Block(block), span })
             }
+            TokenKind::Loop => self.loop_loop(),
+            TokenKind::While => self.while_loop(),
+            TokenKind::Break => self.break_(),
+            TokenKind::Continue => self.continue_(),
+            TokenKind::Return => self.return_(),
+
             TokenKind::If => self.if_chain(),
             TokenKind::Let => self.let_(),
+
             _ => self.expr_at_binding(0),
         }
     }
 
+    // TODO: Have block push onto a passed in Vec rather than building its own
     fn block(&mut self) -> ParseResult<(Vec<Expr>, Span)> {
         self.delimited(
             TokenKind::LCurly,
@@ -183,6 +191,83 @@ impl<'input> Parser<'input> {
             TokenKind::Semicolon,
             TokenKind::RCurly,
         )
+    }
+
+    fn loop_loop(&mut self) -> ParseResult<Expr> {
+        let loop_ = self.token(TokenKind::Loop)?;
+        let (exprs, block_span) = self.block()?;
+        Ok(Expr {
+            span: (loop_.span.0, block_span.1),
+            kind: ExprKind::Loop(Box::new(Expr {
+                span: block_span,
+                kind: ExprKind::Block(exprs),
+            })),
+        })
+    }
+
+    fn while_loop(&mut self) -> ParseResult<Expr> {
+        let while_ = self.token(TokenKind::While)?;
+        let cond_expr = self.expr()?;
+        let sugar_span = cond_expr.span;
+        let (mut exprs, block_span) = self.block()?;
+        exprs.insert(
+            0,
+            Expr {
+                span: sugar_span,
+                kind: ExprKind::If {
+                    cond: Box::new(cond_expr),
+                    then_expr: Box::new(Expr {
+                        span: sugar_span,
+                        kind: ExprKind::Break(None),
+                    }),
+                    else_expr: None,
+                },
+            },
+        );
+        Ok(Expr {
+            span: (while_.span.0, block_span.1),
+            kind: ExprKind::Loop(Box::new(Expr {
+                span: block_span,
+                kind: ExprKind::Block(exprs),
+            })),
+        })
+    }
+
+    // TODO: {break,continue,return}_ all have duplicated code... Maybe try to deduplicate?
+    fn keyword_expr(
+        &mut self,
+        keyword_kind: TokenKind,
+        kind_builder: impl FnOnce(Option<Box<Expr>>) -> ExprKind,
+    ) -> ParseResult<Expr> {
+        let keyword = self.token(keyword_kind)?;
+        let expr = if self.try_peek()?.kind != TokenKind::Semicolon {
+            Some(self.expr()?)
+        } else {
+            None
+        };
+        let span = (
+            keyword.span.0,
+            expr.as_ref()
+                .map(|expr| expr.span.1)
+                .unwrap_or(keyword.span.1),
+        );
+
+        Ok(Expr {
+            kind: kind_builder(expr.map(Box::new)),
+            span,
+        })
+    }
+
+    fn break_(&mut self) -> ParseResult<Expr> {
+        self.keyword_expr(TokenKind::Break, ExprKind::Break)
+    }
+
+    fn continue_(&mut self) -> ParseResult<Expr> {
+        self.keyword_expr(TokenKind::Continue, ExprKind::Continue)
+    }
+
+    fn return_(&mut self) -> ParseResult<Expr> {
+        self.keyword_expr(TokenKind::Return, ExprKind::Return)
     }
 
     fn if_chain(&mut self) -> ParseResult<Expr> {

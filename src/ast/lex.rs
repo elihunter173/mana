@@ -64,6 +64,12 @@ pub enum TokenKind {
     Percent,
     #[token("%=")]
     PercentEq,
+    #[token("and")]
+    And,
+    #[token("or")]
+    Or,
+    #[token("not")]
+    Not,
 
     // Keywords
     #[token("fn")]
@@ -94,12 +100,12 @@ pub enum TokenKind {
     While,
     #[token("loop")]
     Loop,
-    #[token("and")]
-    And,
-    #[token("or")]
-    Or,
-    #[token("not")]
-    Not,
+    #[token("break")]
+    Break,
+    #[token("continue")]
+    Continue,
+    #[token("return")]
+    Return,
 
     // Comparisons
     #[token("==")]
@@ -183,6 +189,9 @@ impl fmt::Display for TokenKind {
             TokenKind::SlashEq => "/=",
             TokenKind::Percent => "%",
             TokenKind::PercentEq => "%=",
+            TokenKind::And => "and",
+            TokenKind::Or => "or",
+            TokenKind::Not => "not",
 
             TokenKind::Fn => "fn",
             TokenKind::Struct => "struct",
@@ -198,9 +207,9 @@ impl fmt::Display for TokenKind {
             TokenKind::For => "for",
             TokenKind::While => "while",
             TokenKind::Loop => "loop",
-            TokenKind::And => "and",
-            TokenKind::Or => "or",
-            TokenKind::Not => "not",
+            TokenKind::Break => "break",
+            TokenKind::Continue => "continue",
+            TokenKind::Return => "return",
 
             TokenKind::DoubleEquals => "==",
             TokenKind::BangEquals => "!=",

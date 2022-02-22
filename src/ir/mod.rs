@@ -57,6 +57,11 @@ pub enum ExprKind {
     Let(VariableId, Box<Expr>),
     Set(VariableId, Box<Expr>),
 
+    Loop(Box<Expr>),
+    Break(Option<Box<Expr>>),
+    Continue(Option<Box<Expr>>),
+    Return(Option<Box<Expr>>),
+
     // TODO: Add dot expressions... Need to figure it out in parser
     FnCall(FunctionId, Vec<Expr>),
     Block(Block),

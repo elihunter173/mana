@@ -5,7 +5,7 @@ pub trait Iterator {
 
 // TODO: How do I want to extend traits in a way that the implementor can't
 // override?
-fn[T Iterator] for_each(&self T, f fn(T.Item)) {
+fn[T Iterator] for_each(self &T, f fn(T.Item)) {
     loop {
         match self.next() {
             Some(x) => f(x),
