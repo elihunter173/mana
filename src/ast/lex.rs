@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, iter};
 
 use logos::{Lexer as LogosLexer, Logos};
 
@@ -130,7 +130,6 @@ pub enum TokenKind {
     Ident,
     #[regex(r"\$[0-9]+")]
     ClosureArg,
-    // TODO: Maybe be more liberal with allowed input?
     #[regex(r#""([^\\"]|\\")*""#)]
     String,
     #[regex(r"[0-9][_0-9]*")]
@@ -152,9 +151,6 @@ pub enum TokenKind {
     #[error]
     // Whitespace
     #[regex(r"[ \t\r\f]+", logos::skip)]
-    // Shebang
-    // TODO: This supports middle of the line shebangs :|
-    #[regex("#!.*\n", logos::skip)]
     Error,
 }
 
@@ -257,18 +253,23 @@ impl fmt::Display for LexError {
 pub struct Lexer<'input> {
     inner: LogosLexer<'input, TokenKind>,
     peeked: Option<Option<Token>>,
-
     previous: Option<Token>,
     next: Option<Token>,
 }
 
-// TODO: Keep the source and use peekable. Less error prone
 impl<'input> Lexer<'input> {
     pub fn new(text: &'input str) -> Self {
-        Self {
-            inner: LogosLexer::new(text),
-            peeked: None,
+        let mut lexer = LogosLexer::new(text);
 
+        // Ignore shebang
+        if text.starts_with("#!") {
+            let newline = text.find('\n').unwrap_or(text.len());
+            lexer.bump(newline);
+        }
+
+        Self {
+            inner: lexer,
+            peeked: None,
             previous: None,
             next: None,
         }
