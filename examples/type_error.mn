@@ -1,0 +1,6 @@
+#!/usr/bin/env mana run
+
+fn main(): Int {
+    let a: Int = 1
+    let b: Float = a
+}

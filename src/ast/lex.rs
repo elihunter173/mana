@@ -311,12 +311,16 @@ impl<'input> Iterator for Lexer<'input> {
 
         let rtn = match current {
             Some(Token { kind: TokenKind::Newline, span }) => {
-                let next = self.raw_next_token();
+                let next = loop {
+                    match self.raw_next_token() {
+                        Some(Token { kind: TokenKind::Newline, .. }) => {}
+                        next => break next,
+                    }
+                };
+
                 if should_skip_semicolon(self.previous.map(|t| t.kind), next.map(|t| t.kind)) {
-                    // We're skipping this one so we don't need to update the return
                     next
                 } else {
-                    // Stash away next to return later
                     self.next = next;
                     Some(Token { kind: TokenKind::Semicolon, span })
                 }
@@ -387,19 +391,19 @@ mod test {
     #[test]
     fn test_semicolon_insertion() {
         assert_lex(
-            "let a = 5\nprint(a + 4.5)",
+            "let a = 5\n\n\nprint(a + 4.5)",
             &[
                 (0, TokenKind::Let, 3),
                 (4, TokenKind::Ident, 5),
                 (6, TokenKind::Equals, 7),
                 (8, TokenKind::Int, 9),
                 (9, TokenKind::Semicolon, 10),
-                (10, TokenKind::Ident, 15),
-                (15, TokenKind::LParen, 16),
-                (16, TokenKind::Ident, 17),
-                (18, TokenKind::Plus, 19),
-                (20, TokenKind::Float, 23),
-                (23, TokenKind::RParen, 24),
+                (12, TokenKind::Ident, 17),
+                (17, TokenKind::LParen, 18),
+                (18, TokenKind::Ident, 19),
+                (20, TokenKind::Plus, 21),
+                (22, TokenKind::Float, 25),
+                (25, TokenKind::RParen, 26),
             ],
         );
     }
@@ -407,17 +411,21 @@ mod test {
     #[test]
     fn test_semicolons_method_chaining() {
         assert_lex(
-            "foo\n.bar()\n.baz()",
+            "foo\n.bar()\n\n.baz()\n//Finish it off\n.broke()",
             &[
                 (0, TokenKind::Ident, 3),
                 (4, TokenKind::Dot, 5),
                 (5, TokenKind::Ident, 8),
                 (8, TokenKind::LParen, 9),
                 (9, TokenKind::RParen, 10),
-                (11, TokenKind::Dot, 12),
-                (12, TokenKind::Ident, 15),
-                (15, TokenKind::LParen, 16),
-                (16, TokenKind::RParen, 17),
+                (12, TokenKind::Dot, 13),
+                (13, TokenKind::Ident, 16),
+                (16, TokenKind::LParen, 17),
+                (17, TokenKind::RParen, 18),
+                (35, TokenKind::Dot, 36),
+                (36, TokenKind::Ident, 41),
+                (41, TokenKind::LParen, 42),
+                (42, TokenKind::RParen, 43),
             ],
         );
     }
