@@ -3,6 +3,7 @@ use crate::{
         lex::{Lexer, Token, TokenKind},
         *,
     },
+    diagnostic::Diagnostic,
     intern::SymbolInterner,
 };
 
@@ -21,24 +22,40 @@ pub enum ParseErrorKind {
 
 type ParseResult<T> = Result<T, ParseError>;
 
-// TODO: Collect multiple errors
-pub struct Parser<'input> {
+// TODO: Collect diagnostics rather than returning a single error
+struct Parser<'input> {
     code: &'input str,
+    diagnostics: Vec<Diagnostic>,
     lexer: Lexer<'input>,
     symbols: &'input mut SymbolInterner,
 }
 
-impl<'input> Parser<'input> {
-    pub fn new(code: &'input str, symbols: &'input mut SymbolInterner) -> Self {
-        Self {
-            code,
-            lexer: Lexer::new(code),
-            symbols,
+pub fn parse_module(code: &str, symbols: &mut SymbolInterner) -> Result<Module, Vec<Diagnostic>> {
+    let mut parser = Parser::new(code, symbols);
+    match parser.module() {
+        Ok(module) => Ok(module),
+        Err(err) => {
+            let diag = crate::diagnostic::diagnostic_from_parse_error(&err);
+            Err(Vec::from([diag]))
         }
     }
 
-    pub fn finished(&mut self) -> bool {
-        self.lexer.peek().is_none()
+    // TODO: Do this once the parser generate diagnostics
+    // if parser.diagnostics.is_empty() {
+    //     Ok(module.unwrap())
+    // } else {
+    //     Err(parser.diagnostics)
+    // }
+}
+
+impl<'input> Parser<'input> {
+    fn new(code: &'input str, symbols: &'input mut SymbolInterner) -> Self {
+        Self {
+            code,
+            diagnostics: Vec::new(),
+            lexer: Lexer::new(code),
+            symbols,
+        }
     }
 }
 
@@ -114,15 +131,14 @@ impl<'input> Parser<'input> {
 }
 
 impl<'input> Parser<'input> {
-    // TODO: Make the public interface simpler and double check that the parser is finished
-    pub fn module(&mut self) -> ParseResult<Module> {
+    fn module(&mut self) -> ParseResult<Module> {
         // TODO: Figure out a way to re-use delimited
         let mut items = Vec::new();
-        if !self.finished() {
+        if self.lexer.peek().is_some() {
             items.push(self.item()?);
         }
         while self.maybe_token(TokenKind::Semicolon).is_some() {
-            if self.finished() {
+            if self.lexer.peek().is_none() {
                 break;
             }
             items.push(self.item()?);

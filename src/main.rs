@@ -20,7 +20,7 @@ use clap::{Parser, Subcommand};
 // use rustyline::{error::ReadlineError, Editor};
 
 use crate::{
-    ast::{lex::Lexer, parse::Parser as ManaParser},
+    ast::{lex::Lexer, parse::parse_module},
     ir::lower::Lowerer,
     jit::JIT,
 };
@@ -34,131 +34,79 @@ struct Opts {
 
 #[derive(Subcommand)]
 enum ManaCommand {
-    Lex { path: String },
-    Parse { path: String },
-    DumpIr { path: String },
-    Run { path: String },
+    Run(RunOpts),
+}
+
+#[derive(Parser)]
+struct RunOpts {
+    path: String,
+    #[clap(long)]
+    dump_tokens: bool,
+    #[clap(long)]
+    dump_ast: bool,
+    #[clap(long)]
+    dump_ir: bool,
 }
 
 fn main() {
     let opts = Opts::parse();
 
     match opts.subcmd {
-        Some(ManaCommand::Lex { path }) => {
-            lex(&path);
-        }
-        Some(ManaCommand::Parse { path }) => {
-            dump_ast(&path);
-        }
-        Some(ManaCommand::DumpIr { path }) => {
-            dump_ir(&path);
-        }
-        Some(ManaCommand::Run { path }) => {
-            run(&path);
+        Some(ManaCommand::Run(opts)) => {
+            run(&opts);
         }
         None => todo!("repl"), // repl()
     }
 }
 
-fn lex(path: &str) {
-    let code = fs::read_to_string(path).unwrap();
+fn run(opts: &RunOpts) {
+    let code = fs::read_to_string(&opts.path).unwrap();
 
-    let lexer = Lexer::new(&code);
-    for item in lexer {
-        println!("{:?}", item);
+    if opts.dump_tokens {
+        let lexer = Lexer::new(&code);
+        for item in lexer {
+            println!("{:?}", item);
+        }
     }
-}
 
-fn dump_ast(path: &str) {
-    let code = fs::read_to_string(path).unwrap();
-
+    println!("Building {}...", opts.path);
     let mut symbol_interner = intern::SymbolInterner::new();
-    let mut parser = ManaParser::new(&code, &mut symbol_interner);
-    let module = match parser.module() {
+    let module = match parse_module(&code, &mut symbol_interner) {
         Ok(module) => module,
-        Err(err) => {
-            crate::diagnostic::emit(
-                &codespan_reporting::files::SimpleFile::new(path, &code),
-                &crate::diagnostic::diagnostic_from_parse_error(&err),
-            );
+        Err(diagnostics) => {
+            let file =
+                codespan_reporting::files::SimpleFile::new(opts.path.as_str(), code.as_str());
+            for diag in &diagnostics {
+                crate::diagnostic::emit(&file, &diag);
+            }
             return;
         }
     };
-    println!("{:?}", module);
-}
-
-fn dump_ir(path: &str) {
-    let code = fs::read_to_string(path).unwrap();
-
-    let mut symbol_interner = intern::SymbolInterner::new();
-    let mut parser = ManaParser::new(&code, &mut symbol_interner);
-    let module = match parser.module() {
-        Ok(module) => module,
-        Err(err) => {
-            crate::diagnostic::emit(
-                &codespan_reporting::files::SimpleFile::new(path, &code),
-                &crate::diagnostic::diagnostic_from_parse_error(&err),
-            );
-            return;
-        }
-    };
+    if opts.dump_ast {
+        println!("{:?}", module);
+    }
 
     let mut registry = ir::registry::Registry::with_basic_types();
     let mut resolver = ir::resolve::Resolver::with_prelude(&mut symbol_interner, &mut registry);
     let mut lowerer = Lowerer {
-        resolver: &mut resolver,
         symbol_interner: &mut symbol_interner,
+        resolver: &mut resolver,
         registry: &mut registry,
     };
     let module = match lowerer.lower_module(&module) {
         Ok(module) => module,
         Err(err) => {
-            crate::diagnostic::emit(
-                &codespan_reporting::files::SimpleFile::new(path, &code),
-                &crate::diagnostic::diagnostic_from_lowering_error(&err),
-            );
+            let file =
+                codespan_reporting::files::SimpleFile::new(opts.path.as_str(), code.as_str());
+            let diag = crate::diagnostic::diagnostic_from_lowering_error(&err);
+            crate::diagnostic::emit(&file, &diag);
             return;
         }
     };
-
-    println!("{:?}", registry);
-    println!("{:?}", module);
-}
-
-fn run(path: &str) {
-    let code = fs::read_to_string(path).unwrap();
-
-    println!("Building {path}...");
-    let mut symbol_interner = intern::SymbolInterner::new();
-    let mut parser = ManaParser::new(&code, &mut symbol_interner);
-    let module = match parser.module() {
-        Ok(module) => module,
-        Err(err) => {
-            crate::diagnostic::emit(
-                &codespan_reporting::files::SimpleFile::new(path, &code),
-                &crate::diagnostic::diagnostic_from_parse_error(&err),
-            );
-            return;
-        }
-    };
-
-    let mut registry = ir::registry::Registry::with_basic_types();
-    let mut resolver = ir::resolve::Resolver::with_prelude(&mut symbol_interner, &mut registry);
-    let mut lowerer = Lowerer {
-        resolver: &mut resolver,
-        symbol_interner: &mut symbol_interner,
-        registry: &mut registry,
-    };
-    let module = match lowerer.lower_module(&module) {
-        Ok(module) => module,
-        Err(err) => {
-            crate::diagnostic::emit(
-                &codespan_reporting::files::SimpleFile::new(path, &code),
-                &crate::diagnostic::diagnostic_from_lowering_error(&err),
-            );
-            return;
-        }
-    };
+    if opts.dump_ir {
+        println!("{:?}", registry);
+        println!("{:?}", module);
+    }
 
     let mut jit = JIT::new(&symbol_interner, &registry);
     let code_ptr = jit.compile(&module).unwrap();

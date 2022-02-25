@@ -1,5 +1,5 @@
 use codespan_reporting::{
-    diagnostic::{self, Label, Severity},
+    diagnostic,
     files::SimpleFile,
     term::{
         self,
@@ -14,6 +14,7 @@ use crate::{
 };
 
 pub type Diagnostic = diagnostic::Diagnostic<()>;
+pub use codespan_reporting::diagnostic::{Label, Severity};
 
 type DiagFile<'a> = SimpleFile<&'a str, &'a str>;
 
