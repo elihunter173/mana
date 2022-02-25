@@ -72,15 +72,15 @@ impl<'input> Parser<'input> {
         Some(tok)
     }
 
-    fn delimited<T>(
+    fn delimited_into<T>(
         &mut self,
+        parsed: &mut Vec<T>,
         start: TokenKind,
         mut parser: impl FnMut(&mut Self) -> ParseResult<T>,
         delimiter: TokenKind,
         end: TokenKind,
-    ) -> ParseResult<(Vec<T>, Span)> {
+    ) -> ParseResult<Span> {
         let start_tok = self.token(start)?;
-        let mut parsed = Vec::new();
         let tok = self.try_peek()?;
         let end_tok = if tok.kind == end {
             self.lexer.next();
@@ -97,11 +97,24 @@ impl<'input> Parser<'input> {
             }
             self.token(end)?
         };
-        Ok((parsed, (start_tok.span.0, end_tok.span.1)))
+        Ok((start_tok.span.0, end_tok.span.1))
+    }
+
+    fn delimited<T>(
+        &mut self,
+        start: TokenKind,
+        parser: impl FnMut(&mut Self) -> ParseResult<T>,
+        delimiter: TokenKind,
+        end: TokenKind,
+    ) -> ParseResult<(Vec<T>, Span)> {
+        let mut parsed = Vec::new();
+        let span = self.delimited_into(&mut parsed, start, parser, delimiter, end)?;
+        Ok((parsed, span))
     }
 }
 
 impl<'input> Parser<'input> {
+    // TODO: Make the public interface simpler and double check that the parser is finished
     pub fn module(&mut self) -> ParseResult<Module> {
         // TODO: Figure out a way to re-use delimited
         let mut items = Vec::new();
@@ -114,6 +127,14 @@ impl<'input> Parser<'input> {
             }
             items.push(self.item()?);
         }
+
+        if let Some(tok) = self.lexer.next() {
+            return Err(ParseError {
+                span: tok.span,
+                kind: ParseErrorKind::UnexpectedToken(tok),
+            });
+        }
+
         Ok(Module { items })
     }
 
@@ -184,7 +205,6 @@ impl<'input> Parser<'input> {
         }
     }
 
-    // TODO: Have block push onto a passed in Vec rather than building its own
     fn block(&mut self) -> ParseResult<(Vec<Expr>, Span)> {
         self.delimited(
             TokenKind::LCurly,
@@ -210,24 +230,30 @@ impl<'input> Parser<'input> {
         let while_ = self.token(TokenKind::While)?;
         let cond_expr = self.expr()?;
         let sugar_span = cond_expr.span;
-        let (mut exprs, block_span) = self.block()?;
-        exprs.insert(
-            0,
-            Expr {
-                span: sugar_span,
-                kind: ExprKind::If {
-                    cond: Box::new(Expr {
-                        span: sugar_span,
-                        kind: ExprKind::Unary(UnaryOp::Not, Box::new(cond_expr)),
-                    }),
-                    then_expr: Box::new(Expr {
-                        span: sugar_span,
-                        kind: ExprKind::Break(None),
-                    }),
-                    else_expr: None,
-                },
+
+        let mut exprs = Vec::new();
+        exprs.push(Expr {
+            span: sugar_span,
+            kind: ExprKind::If {
+                cond: Box::new(Expr {
+                    span: sugar_span,
+                    kind: ExprKind::Unary(UnaryOp::Lnot, Box::new(cond_expr)),
+                }),
+                then_expr: Box::new(Expr {
+                    span: sugar_span,
+                    kind: ExprKind::Break(None),
+                }),
+                else_expr: None,
             },
-        );
+        });
+        let block_span = self.delimited_into(
+            &mut exprs,
+            TokenKind::LCurly,
+            Self::expr,
+            TokenKind::Semicolon,
+            TokenKind::RCurly,
+        )?;
+
         Ok(Expr {
             span: (while_.span.0, block_span.1),
             kind: ExprKind::Loop(Box::new(Expr {
@@ -237,7 +263,6 @@ impl<'input> Parser<'input> {
         })
     }
 
-    // TODO: {break,continue,return}_ all have duplicated code... Maybe try to deduplicate?
     fn keyword_expr(
         &mut self,
         keyword_kind: TokenKind,
@@ -553,9 +578,7 @@ fn parse_int(digits: &str, radix: u32) -> u128 {
     num
 }
 
-// TODO: Actually use parse_float
 fn parse_float(input: &str) -> String {
-    // TODO: Use better parsing logic
     input.replace('_', "")
 }
 

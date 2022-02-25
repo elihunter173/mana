@@ -15,7 +15,7 @@ use crate::{
 
 // TODO: The *Description naming scheme kinda sucks
 
-// TODO: Check out cranelift-object
+// TODO: Check out cranelift-object for generating .o ELF objects
 
 #[derive(Debug)]
 struct TypeDescription(Vec<types::Type>);
@@ -51,7 +51,7 @@ impl TypeDescription {
                     .flatten()
                     .collect(),
             ),
-            TyKind::Struct(_) => todo!(),
+            TyKind::Struct(_) => todo!("struct types"),
         }
     }
 
@@ -162,10 +162,11 @@ impl<'ctx> JIT<'ctx> {
                     .module
                     .declare_function(func_name, Linkage::Export, &signature)
                     .unwrap();
-                // TODO: I don't think this is a good way of doing this
+
                 if func_name == "main" {
                     main_func = Some(id);
                 }
+
                 self.functions.insert(*func_id, id);
             }
         }
@@ -448,7 +449,7 @@ impl<'a> FunctionTranslator<'a> {
             // Create a block which will have this value calculated
             let else_block = self.builder.create_block();
             let merge_block = self.builder.create_block();
-            // TODO: This bool value should be using my registry.bool() type
+            // TODO: This bool value should be using my registry.bool() type?
             self.builder.append_block_param(merge_block, types::B1);
 
             if let ControlFlow::Continue(lhs) = self.translate_expr(lhs) {
@@ -474,7 +475,7 @@ impl<'a> FunctionTranslator<'a> {
             // Create a block which will have this value calculated
             let else_block = self.builder.create_block();
             let merge_block = self.builder.create_block();
-            // TODO: This bool value should be using my registry.bool() type
+            // TODO: This bool value should be using my registry.bool() type?
             self.builder.append_block_param(merge_block, types::B1);
 
             if let ControlFlow::Continue(lhs) = self.translate_expr(lhs) {
@@ -506,7 +507,6 @@ impl<'a> FunctionTranslator<'a> {
             ir::BinOp::Add => ins.iadd(lhs, rhs),
             ir::BinOp::Sub => ins.isub(lhs, rhs),
             ir::BinOp::Mul => ins.imul(lhs, rhs),
-            // TODO: Do sdiv or udiv depending on sign
             ir::BinOp::Div => ins.sdiv(lhs, rhs),
             ir::BinOp::Rem => ins.srem(lhs, rhs),
 
@@ -527,17 +527,20 @@ impl<'a> FunctionTranslator<'a> {
         op: &ir::UnaryOp,
         expr: &ir::Expr,
     ) -> ControlFlow<(), ValueDescription> {
-        // TODO: Do signed vs unsigned operations based off type
         let val = match op {
-            ir::UnaryOp::Neg => todo!("unary negation"),
+            ir::UnaryOp::Neg => {
+                let val = self.translate_expr(expr)?;
+                self.builder.ins().ineg(val.0[0])
+            }
 
-            ir::UnaryOp::Not => {
+            ir::UnaryOp::Lnot => {
                 let val = self.translate_expr(expr)?;
                 self.builder.ins().bnot(val.0[0])
             }
         };
         ControlFlow::Continue(ValueDescription(Vec::from([val])))
     }
+
     fn translate_if_else(
         &mut self,
         condition: &ir::Expr,
@@ -547,12 +550,12 @@ impl<'a> FunctionTranslator<'a> {
         let type_desc = self.get_type_desc(then_expr.ty);
 
         let then_block = self.builder.create_block();
-        // TODO: Tie else_block and else_expr together
-        let else_block = if else_expr.is_some() {
-            Some(self.builder.create_block())
+        let else_info = if let Some(else_expr) = else_expr {
+            Some((self.builder.create_block(), else_expr))
         } else {
             None
         };
+
         let merge_block = self.builder.create_block();
 
         for &ty in type_desc.as_types() {
@@ -562,8 +565,8 @@ impl<'a> FunctionTranslator<'a> {
         if let ControlFlow::Continue(condition_value) = self.translate_expr(condition) {
             // Test the if condition and conditionally branch.
             let val = condition_value.0[0];
-            if else_expr.is_some() {
-                self.builder.ins().brz(val, else_block.unwrap(), &[]);
+            if let Some((else_block, _)) = else_info {
+                self.builder.ins().brz(val, else_block, &[]);
             } else {
                 // I don't need to pass a type here because we're guaranteed that the block returns
                 // nothing if there's no else expression.
@@ -581,8 +584,7 @@ impl<'a> FunctionTranslator<'a> {
                 .jump(merge_block, then_return.as_values());
         }
 
-        if let Some(else_expr) = else_expr {
-            let else_block = else_block.unwrap();
+        if let Some((else_block, else_expr)) = else_info {
             self.builder.switch_to_block(else_block);
             self.builder.seal_block(else_block);
 
@@ -620,7 +622,6 @@ impl<'a> FunctionTranslator<'a> {
         var_id: VariableId,
         expr: &ir::Expr,
     ) -> ControlFlow<(), ValueDescription> {
-        // TODO: Make this a function
         let value_desc = self.translate_expr(expr)?;
         let var_desc = self.variables.get(&var_id).unwrap();
         for (&var, &value) in var_desc.vars.iter().zip(value_desc.0.iter()) {
@@ -630,9 +631,6 @@ impl<'a> FunctionTranslator<'a> {
     }
 
     fn translate_block(&mut self, exprs: &[ir::Expr]) -> ControlFlow<(), ValueDescription> {
-        // TODO: I think I can get away with not generating blocks here
-        // Create a block which will have this value calculated
-
         // Translate all the expressions and keep the last one as the return value
         let mut rtn = None;
         for expr in exprs {
@@ -658,7 +656,6 @@ impl<'a> FunctionTranslator<'a> {
             arg_values.extend(expr.as_values())
         }
         let call = self.builder.ins().call(local_callee, &arg_values);
-        // TODO: Why the hell do I have to just take the first one??
         ControlFlow::Continue(ValueDescription(self.builder.inst_results(call).to_vec()))
     }
 
@@ -675,7 +672,6 @@ impl<'a> FunctionTranslator<'a> {
         self.builder.ins().jump(body_block, &[]);
         self.builder.switch_to_block(body_block);
 
-        // TODO: I have to register the exit block
         self.loop_info.push(LoopInfo { body_block, exit_block });
         if let ControlFlow::Continue(_val) = self.translate_expr(expr) {
             self.builder.ins().jump(body_block, &[]);

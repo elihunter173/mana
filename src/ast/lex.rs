@@ -1,4 +1,4 @@
-use std::{fmt, iter};
+use std::fmt;
 
 use logos::{Lexer as LogosLexer, Logos};
 

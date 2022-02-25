@@ -70,15 +70,12 @@ pub enum ExprKind {
     Set(Ident, Box<Expr>),
 
     Loop(Box<Expr>),
-    // TODO: This isn't the correct representation of break. We need a reference to a loop or
-    // something like that
     Break(Option<Box<Expr>>),
     Continue(Option<Box<Expr>>),
     Return(Option<Box<Expr>>),
 
     FnCall(Ident, Vec<Expr>),
     Block(Block),
-    // TODO: Make this a struct?
     If {
         cond: Box<Expr>,
         then_expr: Box<Expr>,
@@ -109,5 +106,5 @@ pub enum BinOp {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UnaryOp {
     Neg,
-    Not,
+    Lnot,
 }

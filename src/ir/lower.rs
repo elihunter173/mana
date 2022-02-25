@@ -26,6 +26,7 @@ pub enum LoweringErrorKind {
 
 type LoweringResult<T> = Result<T, LoweringError>;
 
+// TODO: Simplify the public API
 pub struct Lowerer<'ctx> {
     // TODO: These should not be public
     pub resolver: &'ctx mut Resolver,
@@ -34,7 +35,6 @@ pub struct Lowerer<'ctx> {
 }
 
 impl<'ctx> Lowerer<'ctx> {
-    // TODO: TypePaths shouldn't exist?
     fn resolve_typepath(&self, typepath: &IdentPath) -> LoweringResult<TypePath> {
         // TODO: This is a hack
         let sym = typepath.path[0].sym;
@@ -53,15 +53,11 @@ impl<'ctx> Lowerer<'ctx> {
 }
 
 impl<'ctx> Lowerer<'ctx> {
-    // TODO: Figure out how to declare everything before defining... Probably declare and then
-    // define
     pub fn lower_module(&mut self, module: &ast::Module) -> LoweringResult<Module> {
         self.resolver.enter_scope();
         let mut module_items = Vec::with_capacity(module.items.len());
 
         // Declare all items
-        // TODO: This func_ids thing is a terrible way to declare and define I think. I'd like to
-        // be able to look up the items. Maybe I could use the resolver?
         let mut func_ids = Vec::new();
         for item in &module.items {
             match item {
@@ -322,7 +318,7 @@ impl<'ctx> Lowerer<'ctx> {
     fn lower_unary(&mut self, op: &ast::UnaryOp, expr: &ast::Expr) -> LoweringResult<Expr> {
         let op = match op {
             ast::UnaryOp::Neg => UnaryOp::Neg,
-            ast::UnaryOp::Not => UnaryOp::Not,
+            ast::UnaryOp::Lnot => UnaryOp::Lnot,
         };
 
         let expr = self.lower_expr(expr)?;
@@ -338,7 +334,7 @@ impl<'ctx> Lowerer<'ctx> {
                 expr.ty
             }
 
-            UnaryOp::Not => {
+            UnaryOp::Lnot => {
                 if !self.registry.get_type(expr.ty).is_boolean() {
                     return Err(LoweringError {
                         kind: LoweringErrorKind::InvalidType(expr.ty),
@@ -425,8 +421,6 @@ impl<'ctx> Lowerer<'ctx> {
         })
     }
 
-    // TODO: Figure out representation of break, continue, and return ir representation. Break and
-    // continue should probably reference a loop and return should probably reference a function
     fn lower_break(&mut self, span: Span, expr: &Option<Box<ast::Expr>>) -> LoweringResult<Expr> {
         let expr = if let Some(expr) = expr {
             Some(Box::new(self.lower_expr(expr)?))
@@ -466,7 +460,7 @@ impl<'ctx> Lowerer<'ctx> {
         };
         Ok(Expr {
             span,
-            // TODO: This type should be that of the break statement
+            // TODO: This should be noreturn or something maybe?
             ty: self.registry.unit(),
             kind: ExprKind::Return(expr),
         })

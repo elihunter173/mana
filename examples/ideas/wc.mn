@@ -3,7 +3,7 @@
 import std.io.Stdin
 
 var lines = 0, words = 0, chars = 0
-// TODO: Think about syntax for closures
+// XXX: Think about syntax for closures
 Stdin.lines.for_each() \line -> {
     lines += 1
     words += line.split(" ").count()

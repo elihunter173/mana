@@ -30,8 +30,7 @@ pub fn diagnostic_from_parse_error(err: &ParseError) -> Diagnostic {
 }
 
 pub fn diagnostic_from_lowering_error(err: &LoweringError) -> Diagnostic {
-    // TODO: Use Display instead of Debug. This requires threading the interner through (oh how I
-    // wish for Rust contexts)
+    // TODO: Use Display instead of Debug. This requires threading the interner through
     match &err.kind {
         LoweringErrorKind::UnknownType(path) => Diagnostic::new(Severity::Error)
             .with_message("unknown type")
