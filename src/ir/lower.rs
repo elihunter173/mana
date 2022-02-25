@@ -153,6 +153,7 @@ impl<'ctx> Lowerer<'ctx> {
     }
 
     fn lower_expr(&mut self, expr: &ast::Expr) -> LoweringResult<Expr> {
+        // TODO: I need to find a better way to track span better. Maybe lower_* returns ExprKind?
         match &expr.kind {
             ast::ExprKind::Ident(ident) => {
                 let obj_id = self
@@ -184,16 +185,10 @@ impl<'ctx> Lowerer<'ctx> {
             }
             ast::ExprKind::Set(var_id, set_expr) => self.lower_set(expr.span, var_id, set_expr),
 
-            ast::ExprKind::Loop(loop_expr) => self.lower_loop(loop_expr),
-            ast::ExprKind::Break(break_expr) => {
-                self.lower_break(expr.span, break_expr.as_ref().map(|b| b.as_ref()))
-            }
-            ast::ExprKind::Continue(continue_expr) => {
-                self.lower_continue(expr.span, continue_expr.as_ref().map(|b| b.as_ref()))
-            }
-            ast::ExprKind::Return(return_expr) => {
-                self.lower_return(expr.span, return_expr.as_ref().map(|b| b.as_ref()))
-            }
+            ast::ExprKind::Loop(loop_expr) => self.lower_loop(expr.span, loop_expr),
+            ast::ExprKind::Break(break_expr) => self.lower_break(expr.span, break_expr),
+            ast::ExprKind::Continue(continue_expr) => self.lower_continue(expr.span, continue_expr),
+            ast::ExprKind::Return(return_expr) => self.lower_return(expr.span, return_expr),
 
             ast::ExprKind::FnCall(ident, args) => self.lower_fn_call(expr.span, ident, args),
             ast::ExprKind::Block(block) => {
@@ -327,6 +322,7 @@ impl<'ctx> Lowerer<'ctx> {
     fn lower_unary(&mut self, op: &ast::UnaryOp, expr: &ast::Expr) -> LoweringResult<Expr> {
         let op = match op {
             ast::UnaryOp::Neg => UnaryOp::Neg,
+            ast::UnaryOp::Not => UnaryOp::Not,
         };
 
         let expr = self.lower_expr(expr)?;
@@ -339,7 +335,16 @@ impl<'ctx> Lowerer<'ctx> {
                         span: expr.span,
                     });
                 }
+                expr.ty
+            }
 
+            UnaryOp::Not => {
+                if !self.registry.get_type(expr.ty).is_boolean() {
+                    return Err(LoweringError {
+                        kind: LoweringErrorKind::InvalidType(expr.ty),
+                        span: expr.span,
+                    });
+                }
                 expr.ty
             }
         };
@@ -411,21 +416,60 @@ impl<'ctx> Lowerer<'ctx> {
         })
     }
 
-    fn lower_loop(&mut self, expr: &ast::Expr) -> LoweringResult<Expr> {
-        todo!("lower loop")
+    fn lower_loop(&mut self, span: Span, expr: &ast::Expr) -> LoweringResult<Expr> {
+        Ok(Expr {
+            span,
+            kind: ExprKind::Loop(Box::new(self.lower_expr(expr)?)),
+            // TODO: This type should be that of the break statement
+            ty: self.registry.unit(),
+        })
     }
 
-    // TODO: Figure out representation of break, continue, and return ir representation
-    fn lower_break(&mut self, span: Span, expr: Option<&ast::Expr>) -> LoweringResult<Expr> {
-        todo!("lower break")
+    // TODO: Figure out representation of break, continue, and return ir representation. Break and
+    // continue should probably reference a loop and return should probably reference a function
+    fn lower_break(&mut self, span: Span, expr: &Option<Box<ast::Expr>>) -> LoweringResult<Expr> {
+        let expr = if let Some(expr) = expr {
+            Some(Box::new(self.lower_expr(expr)?))
+        } else {
+            None
+        };
+        Ok(Expr {
+            span,
+            ty: self.registry.unit(),
+            kind: ExprKind::Break(expr),
+        })
     }
 
-    fn lower_continue(&mut self, expr: Option<&ast::Expr>) -> LoweringResult<Expr> {
-        todo!("lower continue")
+    fn lower_continue(
+        &mut self,
+        span: Span,
+        expr: &Option<Box<ast::Expr>>,
+    ) -> LoweringResult<Expr> {
+        let expr = if let Some(expr) = expr {
+            Some(Box::new(self.lower_expr(expr)?))
+        } else {
+            None
+        };
+        Ok(Expr {
+            span,
+            // TODO: This type should be that of the break statement
+            ty: self.registry.unit(),
+            kind: ExprKind::Continue(expr),
+        })
     }
 
-    fn lower_return(&mut self, expr: Option<&ast::Expr>) -> LoweringResult<Expr> {
-        todo!("lower return")
+    fn lower_return(&mut self, span: Span, expr: &Option<Box<ast::Expr>>) -> LoweringResult<Expr> {
+        let expr = if let Some(expr) = expr {
+            Some(Box::new(self.lower_expr(expr)?))
+        } else {
+            None
+        };
+        Ok(Expr {
+            span,
+            // TODO: This type should be that of the break statement
+            ty: self.registry.unit(),
+            kind: ExprKind::Return(expr),
+        })
     }
 
     fn lower_fn_call(

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, slice, str::FromStr};
+use std::{collections::HashMap, ops::ControlFlow, slice, str::FromStr};
 
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
@@ -59,8 +59,8 @@ impl TypeDescription {
         self.0.iter().map(|ty| AbiParam::new(*ty)).collect()
     }
 
-    fn types(&self) -> &[types::Type] {
-        &self.0
+    fn as_types(&self) -> &[types::Type] {
+        self.0.as_slice()
     }
 }
 
@@ -77,6 +77,10 @@ struct ValueDescription(Vec<Value>);
 impl ValueDescription {
     fn unit() -> Self {
         Self(Vec::new())
+    }
+
+    fn as_values(&self) -> &[Value] {
+        self.0.as_slice()
     }
 }
 
@@ -282,14 +286,17 @@ impl<'ctx> JIT<'ctx> {
             builder,
             variables,
             module: &mut self.module,
+
             functions: &self.functions,
+            loop_info: Vec::new(),
+
             symbols: self.symbols,
             registry: self.registry,
         };
-        let return_value = trans.translate_block(&body.exprs);
-
-        // Emit the return instruction.
-        trans.builder.ins().return_(&return_value.0);
+        // If we have ControlFlow::Break then we ended with a return
+        if let ControlFlow::Continue(return_value) = trans.translate_block(&body.exprs) {
+            trans.builder.ins().return_(return_value.as_values());
+        }
 
         // TODO: You can do this to emit the IR. I should have a command line option to emit IR
         // dbg!(&trans.builder.func);
@@ -300,6 +307,12 @@ impl<'ctx> JIT<'ctx> {
     }
 }
 
+#[derive(Debug)]
+struct LoopInfo {
+    body_block: Block,
+    exit_block: Block,
+}
+
 /// A collection of state used for translating from toy-language AST nodes into Cranelift IR.
 struct FunctionTranslator<'parent> {
     builder: FunctionBuilder<'parent>,
@@ -307,6 +320,8 @@ struct FunctionTranslator<'parent> {
     module: &'parent mut JITModule,
 
     functions: &'parent HashMap<ir::registry::FunctionId, cranelift_module::FuncId>,
+
+    loop_info: Vec<LoopInfo>,
 
     symbols: &'parent SymbolInterner,
     registry: &'parent Registry,
@@ -341,36 +356,29 @@ impl<'parent> FunctionTranslator<'parent> {
 impl<'a> FunctionTranslator<'a> {
     /// When you write out instructions in Cranelift, you get back `Value`s. You can then use these
     /// references in other instructions.
-    fn translate_expr(&mut self, expr: &ir::Expr) -> ValueDescription {
+    fn translate_expr(&mut self, expr: &ir::Expr) -> ControlFlow<(), ValueDescription> {
         match &expr.kind {
             ir::ExprKind::Literal(lit) => self.translate_literal(lit),
             ir::ExprKind::Binary(op, lhs, rhs) => {
                 self.translate_binary(op, lhs.as_ref(), rhs.as_ref())
             }
+            ir::ExprKind::Unary(op, expr) => self.translate_unary(op, expr.as_ref()),
 
             // ExprKind::GlobalDataAddr(name) => self.translate_global_data_addr(name),
             ir::ExprKind::Variable(id) => {
                 // `use_var` is used to read the value of a variable.
                 let variable_desc = self.variables.get(&id).expect("variable not defined");
-                ValueDescription(
+                ControlFlow::Continue(ValueDescription(
                     variable_desc
                         .vars
                         .iter()
                         .map(|var| self.builder.use_var(*var))
                         .collect(),
-                )
+                ))
             }
 
             ir::ExprKind::Let(var_id, init_expr) => self.translate_let(*var_id, init_expr),
-
-            ir::ExprKind::Set(var_id, expr) => {
-                let value_desc = self.translate_expr(expr.as_ref());
-                let var_desc = self.variables.get(var_id).unwrap();
-                for (&var, &value) in var_desc.vars.iter().zip(value_desc.0.iter()) {
-                    self.builder.def_var(var, value);
-                }
-                ValueDescription::unit()
-            }
+            ir::ExprKind::Set(var_id, expr) => self.translate_set(*var_id, expr),
 
             ir::ExprKind::If { cond, then_expr, else_expr } => {
                 self.translate_if_else(cond.as_ref(), then_expr.as_ref(), else_expr.as_deref())
@@ -383,22 +391,27 @@ impl<'a> FunctionTranslator<'a> {
             // }
             ir::ExprKind::FnCall(func, args) => self.translate_call(*func, args),
 
-            _ => todo!("{:?}", expr),
+            ir::ExprKind::Loop(expr) => self.translate_loop(expr),
+            ir::ExprKind::Break(expr) => self.translate_break(expr),
+            ir::ExprKind::Continue(expr) => self.translate_continue(expr),
+            ir::ExprKind::Return(expr) => self.translate_return(expr),
         }
     }
 
-    fn translate_literal(&mut self, lit: &ir::Literal) -> ValueDescription {
+    fn translate_literal(&mut self, lit: &ir::Literal) -> ControlFlow<(), ValueDescription> {
         match &lit.kind {
             ir::LiteralKind::Int(val) => {
                 if let &[ty] = self.get_type_desc(lit.ty).0.as_slice() {
-                    ValueDescription(Vec::from([self.builder.ins().iconst(ty, *val as i64)]))
+                    let cg_val = self.builder.ins().iconst(ty, *val as i64);
+                    ControlFlow::Continue(ValueDescription(Vec::from([cg_val])))
                 } else {
                     panic!("I think this should be impossible");
                 }
             }
             ir::LiteralKind::Bool(val) => {
                 if let &[ty] = self.get_type_desc(lit.ty).0.as_slice() {
-                    ValueDescription(Vec::from([self.builder.ins().bconst(ty, *val)]))
+                    let cg_val = self.builder.ins().bconst(ty, *val);
+                    ControlFlow::Continue(ValueDescription(Vec::from([cg_val])))
                 } else {
                     panic!("I think this should be impossible");
                 }
@@ -409,11 +422,13 @@ impl<'a> FunctionTranslator<'a> {
                     // TODO: Move parsing logic somewhere else
                     TyKind::Float(ty::FloatTy::F32) => {
                         let val = f32::from_str(&input).unwrap();
-                        ValueDescription(Vec::from([self.builder.ins().f32const(val)]))
+                        let cg_val = self.builder.ins().f32const(val);
+                        ControlFlow::Continue(ValueDescription(Vec::from([cg_val])))
                     }
                     TyKind::Float(ty::FloatTy::F64) => {
                         let val = f64::from_str(&input).unwrap();
-                        ValueDescription(Vec::from([self.builder.ins().f64const(val)]))
+                        let cg_val = self.builder.ins().f64const(val);
+                        ControlFlow::Continue(ValueDescription(Vec::from([cg_val])))
                     }
                     _ => unreachable!(),
                 }
@@ -427,7 +442,7 @@ impl<'a> FunctionTranslator<'a> {
         op: &ir::BinOp,
         lhs: &ir::Expr,
         rhs: &ir::Expr,
-    ) -> ValueDescription {
+    ) -> ControlFlow<(), ValueDescription> {
         // Special handling of short-circuiting operations
         if let ir::BinOp::Lor = op {
             // Create a block which will have this value calculated
@@ -436,18 +451,23 @@ impl<'a> FunctionTranslator<'a> {
             // TODO: This bool value should be using my registry.bool() type
             self.builder.append_block_param(merge_block, types::B1);
 
-            let lhs = self.translate_expr(lhs).0[0];
-            self.builder.ins().brnz(lhs, merge_block, &[lhs]);
-            self.builder.ins().jump(else_block, &[]);
+            if let ControlFlow::Continue(lhs) = self.translate_expr(lhs) {
+                self.builder
+                    .ins()
+                    .brnz(lhs.0[0], merge_block, lhs.as_values());
+                self.builder.ins().jump(else_block, &[]);
+            }
 
             self.builder.switch_to_block(else_block);
             self.builder.seal_block(else_block);
-            let rhs = self.translate_expr(rhs).0[0];
-            self.builder.ins().jump(merge_block, &[rhs]);
+            if let ControlFlow::Continue(rhs) = self.translate_expr(rhs) {
+                self.builder.ins().jump(merge_block, rhs.as_values());
+            }
 
             self.builder.switch_to_block(merge_block);
             self.builder.seal_block(merge_block);
-            return ValueDescription(Vec::from(self.builder.block_params(merge_block)));
+            let cg_vals = self.builder.block_params(merge_block);
+            return ControlFlow::Continue(ValueDescription(Vec::from(cg_vals)));
         }
 
         if let ir::BinOp::Land = op {
@@ -457,24 +477,29 @@ impl<'a> FunctionTranslator<'a> {
             // TODO: This bool value should be using my registry.bool() type
             self.builder.append_block_param(merge_block, types::B1);
 
-            let lhs = self.translate_expr(lhs).0[0];
-            self.builder.ins().brz(lhs, merge_block, &[lhs]);
-            self.builder.ins().jump(else_block, &[]);
+            if let ControlFlow::Continue(lhs) = self.translate_expr(lhs) {
+                self.builder
+                    .ins()
+                    .brz(lhs.0[0], merge_block, lhs.as_values());
+                self.builder.ins().jump(else_block, &[]);
+            }
 
             self.builder.switch_to_block(else_block);
             self.builder.seal_block(else_block);
-            let rhs = self.translate_expr(rhs).0[0];
-            self.builder.ins().jump(merge_block, &[rhs]);
+            if let ControlFlow::Continue(rhs) = self.translate_expr(rhs) {
+                self.builder.ins().jump(merge_block, rhs.as_values());
+            }
 
             self.builder.switch_to_block(merge_block);
             self.builder.seal_block(merge_block);
-            return ValueDescription(Vec::from(self.builder.block_params(merge_block)));
+            let cg_vals = self.builder.block_params(merge_block);
+            return ControlFlow::Continue(ValueDescription(Vec::from(cg_vals)));
         }
 
         // TODO: This indexing is a hack
         // TODO: Look at the type to determine how to implement the function
-        let lhs = self.translate_expr(lhs).0[0];
-        let rhs = self.translate_expr(rhs).0[0];
+        let lhs = self.translate_expr(lhs)?.0[0];
+        let rhs = self.translate_expr(rhs)?.0[0];
         let ins = self.builder.ins();
         // TODO: Do signed vs unsigned operations based off type
         let val = match op {
@@ -494,132 +519,224 @@ impl<'a> FunctionTranslator<'a> {
 
             ir::BinOp::Lor | ir::BinOp::Land => unreachable!("this is handled above"),
         };
-        ValueDescription(Vec::from([val]))
+        ControlFlow::Continue(ValueDescription(Vec::from([val])))
     }
 
+    fn translate_unary(
+        &mut self,
+        op: &ir::UnaryOp,
+        expr: &ir::Expr,
+    ) -> ControlFlow<(), ValueDescription> {
+        // TODO: Do signed vs unsigned operations based off type
+        let val = match op {
+            ir::UnaryOp::Neg => todo!("unary negation"),
+
+            ir::UnaryOp::Not => {
+                let val = self.translate_expr(expr)?;
+                self.builder.ins().bnot(val.0[0])
+            }
+        };
+        ControlFlow::Continue(ValueDescription(Vec::from([val])))
+    }
     fn translate_if_else(
         &mut self,
         condition: &ir::Expr,
         then_expr: &ir::Expr,
         else_expr: Option<&ir::Expr>,
-    ) -> ValueDescription {
-        let condition_value = self.translate_expr(condition);
-
+    ) -> ControlFlow<(), ValueDescription> {
         let type_desc = self.get_type_desc(then_expr.ty);
 
         let then_block = self.builder.create_block();
-        let else_block = self.builder.create_block();
+        // TODO: Tie else_block and else_expr together
+        let else_block = if else_expr.is_some() {
+            Some(self.builder.create_block())
+        } else {
+            None
+        };
         let merge_block = self.builder.create_block();
 
-        for &ty in type_desc.types() {
+        for &ty in type_desc.as_types() {
             self.builder.append_block_param(merge_block, ty);
         }
 
-        // Test the if condition and conditionally branch.
-        if else_expr.is_some() {
+        if let ControlFlow::Continue(condition_value) = self.translate_expr(condition) {
+            // Test the if condition and conditionally branch.
             let val = condition_value.0[0];
-            self.builder.ins().brz(val, else_block, &[]);
-        } else {
-            let val = condition_value.0[0];
-            // I don't need to pass a type here because we're guaranteed that the block returns
-            // nothing if there's no else expression.
-            // TODO: This needs to be double checked
-            self.builder.ins().brz(val, merge_block, &[]);
+            if else_expr.is_some() {
+                self.builder.ins().brz(val, else_block.unwrap(), &[]);
+            } else {
+                // I don't need to pass a type here because we're guaranteed that the block returns
+                // nothing if there's no else expression.
+                self.builder.ins().brz(val, merge_block, &[]);
+            }
+            // Fall through to then block.
+            self.builder.ins().jump(then_block, &[]);
         }
-        // Fall through to then block.
-        self.builder.ins().jump(then_block, &[]);
 
         self.builder.switch_to_block(then_block);
         self.builder.seal_block(then_block);
-        let then_return = self.translate_expr(then_expr);
-
-        // Jump to the merge block, passing it the block return value.
-        self.builder.ins().jump(merge_block, &then_return.0);
+        if let ControlFlow::Continue(then_return) = self.translate_expr(then_expr) {
+            self.builder
+                .ins()
+                .jump(merge_block, then_return.as_values());
+        }
 
         if let Some(else_expr) = else_expr {
+            let else_block = else_block.unwrap();
             self.builder.switch_to_block(else_block);
             self.builder.seal_block(else_block);
-            let else_return = self.translate_expr(else_expr);
 
-            // Jump to the merge block, passing it the block return value.
-            self.builder.ins().jump(merge_block, &else_return.0);
+            if let ControlFlow::Continue(else_return) = self.translate_expr(else_expr) {
+                self.builder
+                    .ins()
+                    .jump(merge_block, else_return.as_values());
+            }
         }
 
         // Switch to the merge block for subsequent statements.
         self.builder.switch_to_block(merge_block);
-
         // We've now seen all the predecessors of the merge block.
         self.builder.seal_block(merge_block);
 
         // Read the value of the if-else by reading the merge block
         // parameter.
-        ValueDescription(Vec::from(self.builder.block_params(merge_block)))
+        let cg_vals = self.builder.block_params(merge_block);
+        ControlFlow::Continue(ValueDescription(Vec::from(cg_vals)))
     }
 
-    fn translate_let(&mut self, var_id: VariableId, expr: &ir::Expr) -> ValueDescription {
+    fn translate_let(
+        &mut self,
+        var_id: VariableId,
+        expr: &ir::Expr,
+    ) -> ControlFlow<(), ValueDescription> {
         let type_desc = self.get_type_desc(expr.ty);
-        let value_desc = self.translate_expr(expr);
+        let value_desc = self.translate_expr(expr)?;
         self.declare_variable(var_id, type_desc, value_desc);
-        ValueDescription::unit()
+        ControlFlow::Continue(ValueDescription::unit())
     }
 
-    fn translate_block(&mut self, exprs: &[ir::Expr]) -> ValueDescription {
+    fn translate_set(
+        &mut self,
+        var_id: VariableId,
+        expr: &ir::Expr,
+    ) -> ControlFlow<(), ValueDescription> {
+        // TODO: Make this a function
+        let value_desc = self.translate_expr(expr)?;
+        let var_desc = self.variables.get(&var_id).unwrap();
+        for (&var, &value) in var_desc.vars.iter().zip(value_desc.0.iter()) {
+            self.builder.def_var(var, value);
+        }
+        ControlFlow::Continue(ValueDescription::unit())
+    }
+
+    fn translate_block(&mut self, exprs: &[ir::Expr]) -> ControlFlow<(), ValueDescription> {
         // TODO: I think I can get away with not generating blocks here
         // Create a block which will have this value calculated
 
         // Translate all the expressions and keep the last one as the return value
         let mut rtn = None;
         for expr in exprs {
-            rtn = Some(self.translate_expr(expr));
+            rtn = Some(self.translate_expr(expr)?);
         }
 
         // Return the value of this block
-        rtn.unwrap_or(ValueDescription::unit())
+        ControlFlow::Continue(rtn.unwrap_or(ValueDescription::unit()))
     }
 
-    // fn translate_while_loop(&mut self, condition: Expr, loop_body: Vec<Expr>) -> Value {
-    //     let header_block = self.builder.create_block();
-    //     let body_block = self.builder.create_block();
-    //     let exit_block = self.builder.create_block();
-
-    //     self.builder.ins().jump(header_block, &[]);
-    //     self.builder.switch_to_block(header_block);
-
-    //     let condition_value = self.translate_expr(condition);
-    //     self.builder.ins().brz(condition_value, exit_block, &[]);
-    //     self.builder.ins().jump(body_block, &[]);
-
-    //     self.builder.switch_to_block(body_block);
-    //     self.builder.seal_block(body_block);
-
-    //     for expr in loop_body {
-    //         self.translate_expr(expr);
-    //     }
-    //     self.builder.ins().jump(header_block, &[]);
-
-    //     self.builder.switch_to_block(exit_block);
-
-    //     // We've reached the bottom of the loop, so there will be no
-    //     // more backedges to the header to exits to the bottom.
-    //     self.builder.seal_block(header_block);
-    //     self.builder.seal_block(exit_block);
-
-    //     // Just return 0 for now.
-    //     self.builder.ins().iconst(self.typ, 0)
-    // }
-
-    fn translate_call(&mut self, func_id: FunctionId, args: &[ir::Expr]) -> ValueDescription {
+    fn translate_call(
+        &mut self,
+        func_id: FunctionId,
+        args: &[ir::Expr],
+    ) -> ControlFlow<(), ValueDescription> {
         let local_callee = self
             .module
             .declare_func_in_func(self.functions[&func_id], &mut self.builder.func);
 
         let mut arg_values = Vec::new();
         for arg in args {
-            arg_values.extend(self.translate_expr(arg).0)
+            let expr = self.translate_expr(arg)?;
+            arg_values.extend(expr.as_values())
         }
         let call = self.builder.ins().call(local_callee, &arg_values);
         // TODO: Why the hell do I have to just take the first one??
-        ValueDescription(self.builder.inst_results(call).to_vec())
+        ControlFlow::Continue(ValueDescription(self.builder.inst_results(call).to_vec()))
+    }
+
+    fn translate_loop(&mut self, expr: &ir::Expr) -> ControlFlow<(), ValueDescription> {
+        let loop_type_desc = self.get_type_desc(expr.ty);
+
+        let body_block = self.builder.create_block();
+        let exit_block = self.builder.create_block();
+
+        for &ty in loop_type_desc.as_types() {
+            self.builder.append_block_param(exit_block, ty);
+        }
+
+        self.builder.ins().jump(body_block, &[]);
+        self.builder.switch_to_block(body_block);
+
+        // TODO: I have to register the exit block
+        self.loop_info.push(LoopInfo { body_block, exit_block });
+        if let ControlFlow::Continue(_val) = self.translate_expr(expr) {
+            self.builder.ins().jump(body_block, &[]);
+        }
+        self.builder.seal_block(body_block);
+        self.loop_info.pop().unwrap();
+
+        // TODO: I should register parameters of the break type with the exit_block
+        self.builder.switch_to_block(exit_block);
+        self.builder.seal_block(exit_block);
+        let cg_vals = self.builder.block_params(exit_block);
+        ControlFlow::Continue(ValueDescription(Vec::from(cg_vals)))
+    }
+
+    fn translate_break(
+        &mut self,
+        expr: &Option<Box<ir::Expr>>,
+    ) -> ControlFlow<(), ValueDescription> {
+        let exit_block = self
+            .loop_info
+            .last()
+            .expect("break used outside loop")
+            .exit_block;
+        if let Some(expr) = expr {
+            let val = self.translate_expr(expr)?;
+            self.builder.ins().jump(exit_block, val.as_values());
+        } else {
+            self.builder.ins().jump(exit_block, &[]);
+        }
+        ControlFlow::Break(())
+    }
+
+    fn translate_continue(
+        &mut self,
+        expr: &Option<Box<ir::Expr>>,
+    ) -> ControlFlow<(), ValueDescription> {
+        let body_block = self
+            .loop_info
+            .last()
+            .expect("continue used outside loop")
+            .body_block;
+        if let Some(expr) = expr {
+            let val = self.translate_expr(expr)?;
+            self.builder.ins().jump(body_block, val.as_values());
+        } else {
+            self.builder.ins().jump(body_block, &[]);
+        }
+        ControlFlow::Break(())
+    }
+
+    fn translate_return(
+        &mut self,
+        expr: &Option<Box<ir::Expr>>,
+    ) -> ControlFlow<(), ValueDescription> {
+        if let Some(expr) = expr {
+            let val = self.translate_expr(expr)?;
+            self.builder.ins().return_(val.as_values());
+        } else {
+            self.builder.ins().return_(&[]);
+        }
+        ControlFlow::Break(())
     }
 
     // fn translate_global_data_addr(&mut self, name: String) -> Value {

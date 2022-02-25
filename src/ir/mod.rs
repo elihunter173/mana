@@ -58,6 +58,7 @@ pub enum ExprKind {
     Set(VariableId, Box<Expr>),
 
     Loop(Box<Expr>),
+    // TODO: Keep track of destination when I add labeled breaks
     Break(Option<Box<Expr>>),
     Continue(Option<Box<Expr>>),
     Return(Option<Box<Expr>>),
@@ -117,4 +118,5 @@ pub enum BinOp {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UnaryOp {
     Neg,
+    Not,
 }

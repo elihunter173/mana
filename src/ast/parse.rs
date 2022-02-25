@@ -179,6 +179,7 @@ impl<'input> Parser<'input> {
             TokenKind::If => self.if_chain(),
             TokenKind::Let => self.let_(),
 
+            // TODO: Handle unary expressions
             _ => self.expr_at_binding(0),
         }
     }
@@ -215,7 +216,10 @@ impl<'input> Parser<'input> {
             Expr {
                 span: sugar_span,
                 kind: ExprKind::If {
-                    cond: Box::new(cond_expr),
+                    cond: Box::new(Expr {
+                        span: sugar_span,
+                        kind: ExprKind::Unary(UnaryOp::Not, Box::new(cond_expr)),
+                    }),
                     then_expr: Box::new(Expr {
                         span: sugar_span,
                         kind: ExprKind::Break(None),

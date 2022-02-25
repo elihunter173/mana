@@ -128,6 +128,7 @@ fn dump_ir(path: &str) {
 fn run(path: &str) {
     let code = fs::read_to_string(path).unwrap();
 
+    println!("Building {path}...");
     let mut symbol_interner = intern::SymbolInterner::new();
     let mut parser = ManaParser::new(&code, &mut symbol_interner);
     let module = match parser.module() {
@@ -165,6 +166,7 @@ fn run(path: &str) {
     // SAFETY: Whee! Hopefully the JIT compiler actually did compile to an arg-less and
     // return-value-less procedure
     let code_fn = unsafe { std::mem::transmute::<_, fn() -> i64>(code_ptr) };
+    println!("Build finished. Running.");
     println!("{}", code_fn());
 }
 
