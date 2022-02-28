@@ -5,6 +5,8 @@ fn main(): Int {
 fn looper(n: Int, acc: Int): Int {
     if n >= 1000 {
         acc
+    } else if n % 3 == 0 or n % 5 == 0 {
+        looper(n + 1, acc + n)
     } else {
         looper(n + 1, acc)
     }

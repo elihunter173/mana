@@ -537,6 +537,8 @@ impl<'a> FunctionTranslator<'a> {
                 let val = self.translate_expr(expr)?;
                 self.builder.ins().bnot(val.0[0])
             }
+
+            ir::UnaryOp::Bnot => todo!("bitwise not"),
         };
         ControlFlow::Continue(ValueDescription(Vec::from([val])))
     }

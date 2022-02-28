@@ -1,3 +1,5 @@
+//! TODO: Remove this whole file
+
 use codespan_reporting::{
     diagnostic,
     files::SimpleFile,
@@ -8,27 +10,12 @@ use codespan_reporting::{
     },
 };
 
-use crate::{
-    ast::parse::{ParseError, ParseErrorKind},
-    ir::lower::{LoweringError, LoweringErrorKind},
-};
+use crate::ir::lower::{LoweringError, LoweringErrorKind};
 
 pub type Diagnostic = diagnostic::Diagnostic<()>;
 pub use codespan_reporting::diagnostic::{Label, Severity};
 
 type DiagFile<'a> = SimpleFile<&'a str, &'a str>;
-
-pub fn diagnostic_from_parse_error(err: &ParseError) -> Diagnostic {
-    match err.kind {
-        ParseErrorKind::UnexpectedEOF => Diagnostic::new(Severity::Error)
-            .with_message("unexpected end of file")
-            .with_labels(vec![Label::primary((), err.span.0..err.span.1)]),
-        ParseErrorKind::UnexpectedToken(tok) => Diagnostic::new(Severity::Error)
-            .with_message("unexpected token")
-            .with_labels(vec![Label::primary((), err.span.0..err.span.1)
-                .with_message(format!("unexpected token `{}`", tok.kind))]),
-    }
-}
 
 pub fn diagnostic_from_lowering_error(err: &LoweringError) -> Diagnostic {
     // TODO: Use Display instead of Debug. This requires threading the interner through

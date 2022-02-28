@@ -71,19 +71,17 @@ fn run(opts: &RunOpts) {
 
     println!("Building {}...", opts.path);
     let mut symbol_interner = intern::SymbolInterner::new();
-    let module = match parse_module(&code, &mut symbol_interner) {
-        Ok(module) => module,
-        Err(diagnostics) => {
-            let file =
-                codespan_reporting::files::SimpleFile::new(opts.path.as_str(), code.as_str());
-            for diag in &diagnostics {
-                crate::diagnostic::emit(&file, &diag);
-            }
-            return;
-        }
-    };
+    let (module, diagnostics) = parse_module(&code, &mut symbol_interner);
+    let diagnostic_file =
+        codespan_reporting::files::SimpleFile::new(opts.path.as_str(), code.as_str());
     if opts.dump_ast {
         println!("{:?}", module);
+    }
+    if !diagnostics.is_empty() {
+        for diag in &diagnostics {
+            crate::diagnostic::emit(&diagnostic_file, &diag);
+        }
+        return;
     }
 
     let mut registry = ir::registry::Registry::with_basic_types();
@@ -96,10 +94,8 @@ fn run(opts: &RunOpts) {
     let module = match lowerer.lower_module(&module) {
         Ok(module) => module,
         Err(err) => {
-            let file =
-                codespan_reporting::files::SimpleFile::new(opts.path.as_str(), code.as_str());
             let diag = crate::diagnostic::diagnostic_from_lowering_error(&err);
-            crate::diagnostic::emit(&file, &diag);
+            crate::diagnostic::emit(&diagnostic_file, &diag);
             return;
         }
     };

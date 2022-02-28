@@ -3,26 +3,10 @@ use crate::{
         lex::{Lexer, Token, TokenKind},
         *,
     },
-    diagnostic::Diagnostic,
+    diagnostic::{Diagnostic, Label},
     intern::SymbolInterner,
 };
 
-#[derive(Debug, Eq, PartialEq, Clone)]
-pub struct ParseError {
-    pub kind: ParseErrorKind,
-    pub span: (usize, usize),
-}
-
-// TODO: Improve error granularity and error reporting
-#[derive(Debug, Eq, PartialEq, Clone)]
-pub enum ParseErrorKind {
-    UnexpectedEOF,
-    UnexpectedToken(Token),
-}
-
-type ParseResult<T> = Result<T, ParseError>;
-
-// TODO: Collect diagnostics rather than returning a single error
 struct Parser<'input> {
     code: &'input str,
     diagnostics: Vec<Diagnostic>,
@@ -30,22 +14,10 @@ struct Parser<'input> {
     symbols: &'input mut SymbolInterner,
 }
 
-pub fn parse_module(code: &str, symbols: &mut SymbolInterner) -> Result<Module, Vec<Diagnostic>> {
+pub fn parse_module(code: &str, symbols: &mut SymbolInterner) -> (Module, Vec<Diagnostic>) {
     let mut parser = Parser::new(code, symbols);
-    match parser.module() {
-        Ok(module) => Ok(module),
-        Err(err) => {
-            let diag = crate::diagnostic::diagnostic_from_parse_error(&err);
-            Err(Vec::from([diag]))
-        }
-    }
-
-    // TODO: Do this once the parser generate diagnostics
-    // if parser.diagnostics.is_empty() {
-    //     Ok(module.unwrap())
-    // } else {
-    //     Err(parser.diagnostics)
-    // }
+    let module = parser.module();
+    (module, parser.diagnostics)
 }
 
 impl<'input> Parser<'input> {
@@ -61,25 +33,8 @@ impl<'input> Parser<'input> {
 
 // Helpers
 impl<'input> Parser<'input> {
-    fn try_peek(&mut self) -> ParseResult<Token> {
-        self.lexer.peek().ok_or(ParseError {
-            kind: ParseErrorKind::UnexpectedEOF,
-            span: (self.code.len() - 1, self.code.len() - 1),
-        })
-    }
-
-    fn token(&mut self, kind: TokenKind) -> ParseResult<Token> {
-        let tok = self.try_peek()?;
-        if tok.kind != kind {
-            return Err(ParseError {
-                kind: ParseErrorKind::UnexpectedToken(tok),
-                span: tok.span,
-            });
-        }
-        self.lexer.next();
-        Ok(tok)
-    }
-
+    // Returns `Token` of the given `kind` if it matches the given type.
+    #[must_use]
     fn maybe_token(&mut self, kind: TokenKind) -> Option<Token> {
         let tok = self.lexer.peek()?;
         if tok.kind != kind {
@@ -89,166 +44,456 @@ impl<'input> Parser<'input> {
         Some(tok)
     }
 
-    fn delimited_into<T>(
-        &mut self,
-        parsed: &mut Vec<T>,
-        start: TokenKind,
-        mut parser: impl FnMut(&mut Self) -> ParseResult<T>,
-        delimiter: TokenKind,
-        end: TokenKind,
-    ) -> ParseResult<Span> {
-        let start_tok = self.token(start)?;
-        let tok = self.try_peek()?;
-        let end_tok = if tok.kind == end {
-            self.lexer.next();
-            tok
-        } else {
-            parsed.push(parser(self)?);
-            while self.maybe_token(delimiter).is_some() {
-                // This allows for trailing delimiters
-                // If the token we're peeking at is what we want. Try to rewrite this if possible
-                if self.lexer.peek().filter(|tok| tok.kind == end).is_some() {
-                    break;
-                }
-                parsed.push(parser(self)?);
-            }
-            self.token(end)?
-        };
-        Ok((start_tok.span.0, end_tok.span.1))
+    fn maybe_ident(&mut self) -> Option<Ident> {
+        let tok = self.maybe_token(TokenKind::Ident)?;
+        Some(Ident {
+            sym: self.symbols.get_or_intern(self.lexer.source(&tok)),
+            span: tok.span,
+        })
     }
 
-    fn delimited<T>(
-        &mut self,
-        start: TokenKind,
-        parser: impl FnMut(&mut Self) -> ParseResult<T>,
-        delimiter: TokenKind,
-        end: TokenKind,
-    ) -> ParseResult<(Vec<T>, Span)> {
-        let mut parsed = Vec::new();
-        let span = self.delimited_into(&mut parsed, start, parser, delimiter, end)?;
-        Ok((parsed, span))
+    fn maybe_ident_path(&mut self) -> Option<IdentPath> {
+        let head = self.maybe_ident()?;
+        let mut span = head.span;
+        let mut path = vec![head];
+        while let Some(_dot) = self.maybe_token(TokenKind::Dot) {
+            let next = self.maybe_ident()?;
+            span.1 = next.span.1;
+            path.push(next);
+        }
+        Some(IdentPath { path, span })
+    }
+
+    // TODO: Have better diagnostics
+    fn unexpected_token(&self, tok: Token) -> Diagnostic {
+        Diagnostic::error()
+            .with_message("unexpected token")
+            .with_labels(vec![Label::primary((), tok.span.0..tok.span.1)])
+    }
+
+    fn unexpected_eof(&self) -> Diagnostic {
+        Diagnostic::error()
+            .with_message("unexpected end of file")
+            .with_labels(vec![Label::primary(
+                (),
+                self.code.len() - 1..self.code.len(),
+            )])
+    }
+
+    fn unexpected(&mut self) {
+        if let Some(tok) = self.lexer.peek() {
+            self.diagnostics.push(self.unexpected_token(tok))
+        } else {
+            self.diagnostics.push(self.unexpected_eof())
+        }
     }
 }
 
 impl<'input> Parser<'input> {
-    fn module(&mut self) -> ParseResult<Module> {
+    fn module(&mut self) -> Module {
         // TODO: Figure out a way to re-use delimited
         let mut items = Vec::new();
         if self.lexer.peek().is_some() {
-            items.push(self.item()?);
+            items.push(self.item());
         }
         while self.maybe_token(TokenKind::Semicolon).is_some() {
             if self.lexer.peek().is_none() {
                 break;
             }
-            items.push(self.item()?);
+            items.push(self.item());
         }
 
         if let Some(tok) = self.lexer.next() {
-            return Err(ParseError {
-                span: tok.span,
-                kind: ParseErrorKind::UnexpectedToken(tok),
-            });
+            self.diagnostics.push(self.unexpected_token(tok));
         }
 
-        Ok(Module { items })
+        Module { items }
     }
 
-    fn item(&mut self) -> ParseResult<Item> {
-        let tok = self.try_peek()?;
-        match tok.kind {
-            TokenKind::Import => self.import(),
-            TokenKind::Fn => Ok(Item::FnDef(self.fn_def()?)),
-            _ => Err(ParseError {
-                kind: ParseErrorKind::UnexpectedToken(tok),
-                span: tok.span,
-            }),
+    fn item(&mut self) -> Item {
+        match self.lexer.peek() {
+            Some(Token { kind: TokenKind::Fn, .. }) => self.fn_def(),
+            Some(Token { kind: TokenKind::Import, .. }) => self.import(),
+            _ => {
+                self.unexpected();
+                Item::Error
+            }
         }
     }
 
-    fn fn_def(&mut self) -> ParseResult<FnDef> {
-        let start = self.token(TokenKind::Fn)?.span.0;
-        let name = self.ident()?;
-        let (args, _span) = self.delimited(
-            TokenKind::LParen,
-            |parser| {
-                let ident = parser.ident()?;
-                parser.token(TokenKind::Colon)?;
-                let typepath = parser.typepath()?;
-                Ok((ident, typepath))
-            },
-            TokenKind::Comma,
-            TokenKind::RParen,
-        )?;
+    fn fn_def(&mut self) -> Item {
+        let fn_ = self
+            .maybe_token(TokenKind::Fn)
+            .expect("functions parsed predictively");
+
+        let name = if let Some(ident) = self.maybe_ident() {
+            ident
+        } else {
+            self.unexpected();
+            return Item::Error;
+        };
+
+        if self.maybe_token(TokenKind::LParen).is_none() {
+            self.unexpected();
+            return Item::Error;
+        }
+
+        // TODO: Try to make delimited work again
+        let maybe_param = |parser: &mut Self| {
+            let ident = parser.maybe_ident()?;
+            parser.maybe_token(TokenKind::Colon)?;
+            let typepath = parser.maybe_ident_path()?;
+            Some((ident, typepath))
+        };
+        let mut params = Vec::new();
+        if let Some(tok) = self.maybe_token(TokenKind::RParen) {
+            tok
+        } else {
+            // Initial element
+            if let Some(param) = maybe_param(self) {
+                params.push(param);
+            } else {
+                self.unexpected();
+                return Item::Error;
+            }
+
+            // Remaining elements
+            loop {
+                let got_comma = self.maybe_token(TokenKind::Comma).is_some();
+                if let Some(tok) = self.maybe_token(TokenKind::RParen) {
+                    // We finished
+                    break tok;
+                } else if !got_comma {
+                    // We didn't get a comma, so we expect to finish, but didn't
+                    self.unexpected();
+                    return Item::Error;
+                } else {
+                    // Expect another parameters
+                    if let Some(param) = maybe_param(self) {
+                        params.push(param);
+                    } else {
+                        self.unexpected();
+                        return Item::Error;
+                    }
+                }
+            }
+        };
+
         let return_type = if self.maybe_token(TokenKind::Colon).is_some() {
-            Some(self.typepath()?)
+            if let Some(ident_path) = self.maybe_ident_path() {
+                Some(ident_path)
+            } else {
+                self.unexpected();
+                return Item::Error;
+            }
         } else {
             None
         };
-        let (body, (_start, end)) = self.block()?;
-        Ok(FnDef {
+
+        let (body, (_start, end)) = self.block();
+        Item::FnDef(FnDef {
             name,
-            params: args,
+            params,
             return_typepath: return_type,
             body,
-            span: (start, end),
+            span: (fn_.span.0, end),
         })
     }
 
-    fn import(&mut self) -> ParseResult<Item> {
-        self.token(TokenKind::Import)?;
-        let typepath = self.typepath()?;
-        Ok(Item::Import(typepath))
-    }
+    fn import(&mut self) -> Item {
+        self.maybe_token(TokenKind::Import)
+            .expect("import is parsed predictively");
 
-    fn expr(&mut self) -> ParseResult<Expr> {
-        match self.try_peek()?.kind {
-            TokenKind::LCurly => {
-                let (block, span) = self.block()?;
-                Ok(Expr { kind: ExprKind::Block(block), span })
-            }
-            TokenKind::Loop => self.loop_loop(),
-            TokenKind::While => self.while_loop(),
-            TokenKind::Break => self.break_(),
-            TokenKind::Continue => self.continue_(),
-            TokenKind::Return => self.return_(),
+        let path = if let Some(path) = self.maybe_ident_path() {
+            path
+        } else {
+            self.unexpected();
+            return Item::Error;
+        };
 
-            TokenKind::If => self.if_chain(),
-            TokenKind::Let => self.let_(),
-
-            // TODO: Handle unary expressions
-            _ => self.expr_at_binding(0),
+        if self.maybe_token(TokenKind::Semicolon).is_none() {
+            self.unexpected();
+            return Item::Error;
         }
+
+        Item::Import(path)
     }
 
-    fn block(&mut self) -> ParseResult<(Vec<Expr>, Span)> {
-        self.delimited(
+    fn expr(&mut self) -> Expr {
+        self.expr_at_bp(0)
+    }
+
+    // This is a precedence climbing parser
+    // TODO: Decide on binding powers. Currently unary and binary operators conflict
+    // Built with the help of https://matklad.github.io/2020/04/13/simple-but-powerful-pratt-parsing.html
+    fn expr_at_bp(&mut self, min_bp: u8) -> Expr {
+        let tok = if let Some(tok) = self.lexer.peek() {
+            tok
+        } else {
+            self.diagnostics.push(self.unexpected_eof());
+            return Expr {
+                kind: ExprKind::Error,
+                span: (self.code.len() - 1, self.code.len()),
+            };
+        };
+
+        let mut lhs = match tok.kind {
+            TokenKind::Minus => self.parse_unary(UnaryOp::Neg, 5),
+            TokenKind::Not => self.parse_unary(UnaryOp::Lnot, 6),
+            TokenKind::Tilde => self.parse_unary(UnaryOp::Bnot, 7),
+
+            // TODO: I hate duplicating this. Try to merge literal in here
+            TokenKind::Int
+            | TokenKind::IntHex
+            | TokenKind::IntOct
+            | TokenKind::IntBin
+            | TokenKind::Float
+            | TokenKind::String
+            | TokenKind::True
+            | TokenKind::False => self.literal(),
+
+            TokenKind::Ident => {
+                let ident = self.maybe_ident().expect("peeked");
+                Expr {
+                    span: ident.span,
+                    kind: ExprKind::Ident(ident),
+                }
+            }
+
+            TokenKind::LParen => {
+                self.lexer.next();
+                let lparen = tok;
+                let expr = self.expr_at_bp(0);
+                if let Some(rparen) = self.maybe_token(TokenKind::RParen) {
+                    Expr {
+                        span: (lparen.span.0, rparen.span.1),
+                        kind: expr.kind,
+                    }
+                } else {
+                    self.unexpected();
+                    return Expr {
+                        span: (tok.span.0, expr.span.1),
+                        kind: ExprKind::Error,
+                    };
+                }
+            }
+
+            TokenKind::LCurly if min_bp == 0 => {
+                let (block, span) = self.block();
+                Expr { kind: ExprKind::Block(block), span }
+            }
+            TokenKind::Loop if min_bp == 0 => self.loop_loop(),
+            TokenKind::While if min_bp == 0 => self.while_loop(),
+            TokenKind::Break if min_bp == 0 => self.break_(),
+            TokenKind::Continue if min_bp == 0 => self.continue_(),
+            TokenKind::Return if min_bp == 0 => self.return_(),
+
+            TokenKind::If if min_bp == 0 => self.if_chain(),
+            TokenKind::Let if min_bp == 0 => self.let_(),
+
+            _ => {
+                self.unexpected();
+                Expr {
+                    kind: ExprKind::Error,
+                    span: tok.span,
+                }
+            }
+        };
+
+        loop {
+            let tok = if let Some(tok) = self.lexer.peek() {
+                tok
+            } else {
+                break;
+            };
+
+            fn binop(
+                parser: &mut Parser,
+                lhs: Expr,
+                op: BinOp,
+                binding_power: u8,
+                assoc: Assoc,
+            ) -> Expr {
+                parser.lexer.next();
+                // TODO: I think I handle associativity right
+                let bp = match assoc {
+                    Assoc::Left => binding_power + 1,
+                    Assoc::Right => binding_power,
+                };
+                let rhs = parser.expr_at_bp(bp);
+                Expr {
+                    span: (lhs.span.0, rhs.span.1),
+                    kind: ExprKind::Binary(op, Box::new(lhs), Box::new(rhs)),
+                }
+            }
+
+            // Force the left hand side to be an ident
+            // TODO: This is bad, but making changes to this requires significant changes to
+            // everything else
+            fn conv_ident(expr: Expr) -> Ident {
+                if let ExprKind::Ident(ident) = expr.kind {
+                    ident
+                } else {
+                    todo!("function calls are only idents");
+                }
+            }
+
+            // Handle trailing operators
+            lhs = match tok.kind {
+                TokenKind::Or if min_bp <= 5 => binop(self, lhs, BinOp::Lor, 5, Assoc::Left),
+
+                TokenKind::And if min_bp <= 6 => binop(self, lhs, BinOp::Land, 6, Assoc::Left),
+
+                TokenKind::DoubleEquals if min_bp <= 7 => {
+                    binop(self, lhs, BinOp::Eq, 7, Assoc::Left)
+                }
+                TokenKind::BangEquals if min_bp <= 7 => {
+                    binop(self, lhs, BinOp::Neq, 7, Assoc::Left)
+                }
+                TokenKind::Lt if min_bp <= 7 => binop(self, lhs, BinOp::Lt, 7, Assoc::Left),
+                TokenKind::Leq if min_bp <= 7 => binop(self, lhs, BinOp::Leq, 7, Assoc::Left),
+                TokenKind::Gt if min_bp <= 7 => binop(self, lhs, BinOp::Gt, 7, Assoc::Left),
+                TokenKind::Geq if min_bp <= 7 => binop(self, lhs, BinOp::Geq, 7, Assoc::Left),
+
+                TokenKind::Plus if min_bp <= 8 => binop(self, lhs, BinOp::Add, 8, Assoc::Left),
+                TokenKind::Minus if min_bp <= 8 => binop(self, lhs, BinOp::Sub, 8, Assoc::Left),
+
+                TokenKind::Star if min_bp <= 9 => binop(self, lhs, BinOp::Mul, 9, Assoc::Left),
+                TokenKind::Slash if min_bp <= 9 => binop(self, lhs, BinOp::Div, 9, Assoc::Left),
+                TokenKind::Percent if min_bp <= 9 => binop(self, lhs, BinOp::Rem, 9, Assoc::Left),
+
+                TokenKind::LParen if min_bp <= 10 => {
+                    let fn_ident = conv_ident(lhs);
+                    let (args, args_span) = self.fn_args();
+                    Expr {
+                        kind: ExprKind::FnCall(fn_ident, args),
+                        span: (fn_ident.span.0, args_span.1),
+                    }
+                }
+                TokenKind::LSquare if min_bp <= 10 => {
+                    self.lexer.next();
+                    let expr = self.expr_at_bp(0);
+                    if let Some(rsquare) = self.maybe_token(TokenKind::RSquare) {
+                        Expr {
+                            span: (lhs.span.0, rsquare.span.1),
+                            kind: expr.kind,
+                        }
+                    } else {
+                        self.unexpected();
+                        return Expr {
+                            span: (lhs.span.0, expr.span.1),
+                            kind: ExprKind::Error,
+                        };
+                    }
+                }
+                TokenKind::Dot if min_bp <= 10 => {
+                    self.lexer.next();
+                    let dot = tok;
+                    if let Some(ident) = self.maybe_ident() {
+                        Expr {
+                            span: (lhs.span.0, ident.span.1),
+                            kind: ExprKind::Access(Box::new(lhs), ident),
+                        }
+                    } else {
+                        self.unexpected();
+                        return Expr {
+                            span: (lhs.span.0, dot.span.1),
+                            kind: ExprKind::Error,
+                        };
+                    }
+                }
+
+                TokenKind::Equals if min_bp <= 11 => self.set(conv_ident(lhs), None),
+                TokenKind::PlusEq if min_bp <= 11 => self.set(conv_ident(lhs), Some(BinOp::Add)),
+                TokenKind::MinusEq if min_bp <= 11 => self.set(conv_ident(lhs), Some(BinOp::Sub)),
+                TokenKind::StarEq if min_bp <= 11 => self.set(conv_ident(lhs), Some(BinOp::Mul)),
+                TokenKind::SlashEq if min_bp <= 11 => self.set(conv_ident(lhs), Some(BinOp::Div)),
+
+                _ => break,
+            };
+        }
+
+        lhs
+    }
+
+    // TODO: This is a terrible hack I need to get rid of
+    fn delimited_expr_hack_todo_replace(
+        &mut self,
+        start: TokenKind,
+        delimiter: TokenKind,
+        end: TokenKind,
+    ) -> (Vec<Expr>, Span) {
+        let exprs = Vec::new();
+
+        let start_tok = if let Some(tok) = self.maybe_token(start) {
+            tok
+        } else {
+            self.unexpected();
+            // TODO: I need to actually have the span
+            return (exprs, (0, 0));
+        };
+
+        let mut exprs = Vec::new();
+        let end_tok = if let Some(tok) = self.maybe_token(end) {
+            tok
+        } else {
+            // Initial element
+            exprs.push(self.expr());
+
+            // Remaining elements
+            loop {
+                let got_comma = self.maybe_token(delimiter).is_some();
+                if let Some(tok) = self.maybe_token(end) {
+                    // We finished
+                    break tok;
+                } else if !got_comma {
+                    // We didn't get a comma, so we expect to finish, but didn't
+                    self.unexpected();
+                    // TODO: This is bad
+                    return (exprs, (0, 0));
+                } else {
+                    // Expect another parameters
+                    exprs.push(self.expr());
+                }
+            }
+        };
+
+        (exprs, (start_tok.span.0, end_tok.span.1))
+    }
+
+    fn block(&mut self) -> (Vec<Expr>, Span) {
+        self.delimited_expr_hack_todo_replace(
             TokenKind::LCurly,
-            Self::expr,
             TokenKind::Semicolon,
             TokenKind::RCurly,
         )
     }
 
-    fn loop_loop(&mut self) -> ParseResult<Expr> {
-        let loop_ = self.token(TokenKind::Loop)?;
-        let (exprs, block_span) = self.block()?;
-        Ok(Expr {
+    fn loop_loop(&mut self) -> Expr {
+        let loop_ = self
+            .maybe_token(TokenKind::Loop)
+            .expect("loop loop is parsed predictively");
+
+        let (exprs, block_span) = self.block();
+        Expr {
             span: (loop_.span.0, block_span.1),
             kind: ExprKind::Loop(Box::new(Expr {
                 span: block_span,
                 kind: ExprKind::Block(exprs),
             })),
-        })
+        }
     }
 
-    fn while_loop(&mut self) -> ParseResult<Expr> {
-        let while_ = self.token(TokenKind::While)?;
-        let cond_expr = self.expr()?;
+    fn while_loop(&mut self) -> Expr {
+        let while_ = self
+            .maybe_token(TokenKind::While)
+            .expect("while loop is parsed predictively");
+
+        let cond_expr = self.expr();
         let sugar_span = cond_expr.span;
 
-        let mut exprs = Vec::new();
-        exprs.push(Expr {
+        // TODO: Have block build into vec so we don't waste all this shit
+        let if_break = Expr {
             span: sugar_span,
             kind: ExprKind::If {
                 cond: Box::new(Expr {
@@ -261,34 +506,31 @@ impl<'input> Parser<'input> {
                 }),
                 else_expr: None,
             },
-        });
-        let block_span = self.delimited_into(
-            &mut exprs,
-            TokenKind::LCurly,
-            Self::expr,
-            TokenKind::Semicolon,
-            TokenKind::RCurly,
-        )?;
+        };
+        let (mut exprs, block_span) = self.block();
+        exprs.insert(0, if_break);
 
-        Ok(Expr {
+        Expr {
             span: (while_.span.0, block_span.1),
             kind: ExprKind::Loop(Box::new(Expr {
                 span: block_span,
                 kind: ExprKind::Block(exprs),
             })),
-        })
+        }
     }
 
     fn keyword_expr(
         &mut self,
         keyword_kind: TokenKind,
         kind_builder: impl FnOnce(Option<Box<Expr>>) -> ExprKind,
-    ) -> ParseResult<Expr> {
-        let keyword = self.token(keyword_kind)?;
-        let expr = if self.try_peek()?.kind != TokenKind::Semicolon {
-            Some(self.expr()?)
-        } else {
+    ) -> Expr {
+        let keyword = self
+            .maybe_token(keyword_kind)
+            .expect(&format!("{keyword_kind} parsed predictively"));
+        let expr = if let Some(Token { kind: TokenKind::Semicolon, .. }) = self.lexer.peek() {
             None
+        } else {
+            Some(self.expr())
         };
         let span = (
             keyword.span.0,
@@ -297,35 +539,46 @@ impl<'input> Parser<'input> {
                 .unwrap_or(keyword.span.1),
         );
 
-        Ok(Expr {
+        Expr {
             kind: kind_builder(expr.map(Box::new)),
             span,
-        })
+        }
     }
 
-    fn break_(&mut self) -> ParseResult<Expr> {
+    fn break_(&mut self) -> Expr {
         self.keyword_expr(TokenKind::Break, ExprKind::Break)
     }
 
-    fn continue_(&mut self) -> ParseResult<Expr> {
+    fn continue_(&mut self) -> Expr {
         self.keyword_expr(TokenKind::Continue, ExprKind::Continue)
     }
 
-    fn return_(&mut self) -> ParseResult<Expr> {
+    fn return_(&mut self) -> Expr {
         self.keyword_expr(TokenKind::Return, ExprKind::Return)
     }
 
-    fn if_chain(&mut self) -> ParseResult<Expr> {
-        let if_ = self.token(TokenKind::If)?;
-        let cond = self.expr()?;
-        let (then_block, true_block_span) = self.block()?;
+    fn if_chain(&mut self) -> Expr {
+        let if_ = self
+            .maybe_token(TokenKind::If)
+            .expect("if chain is parsed predictively");
+
+        let cond = self.expr();
+        let (then_block, true_block_span) = self.block();
 
         let false_expr = if self.maybe_token(TokenKind::Else).is_some() {
-            let tok = self.try_peek()?;
-            if tok.kind == TokenKind::If {
-                Some(self.if_chain()?)
+            let tok = if let Some(tok) = self.lexer.peek() {
+                tok
             } else {
-                let (false_block, false_block_span) = self.block()?;
+                self.diagnostics.push(self.unexpected_eof());
+                return Expr {
+                    kind: ExprKind::Error,
+                    span: (self.code.len() - 1, self.code.len()),
+                };
+            };
+            if tok.kind == TokenKind::If {
+                Some(self.if_chain())
+            } else {
+                let (false_block, false_block_span) = self.block();
                 Some(Expr {
                     kind: ExprKind::Block(false_block),
                     span: false_block_span,
@@ -342,7 +595,7 @@ impl<'input> Parser<'input> {
                 .map(|f| f.span.1)
                 .unwrap_or(true_block_span.1),
         );
-        Ok(Expr {
+        Expr {
             kind: ExprKind::If {
                 cond: Box::new(cond),
                 then_expr: Box::new(Expr {
@@ -352,54 +605,70 @@ impl<'input> Parser<'input> {
                 else_expr: false_expr.map(Box::new),
             },
             span,
-        })
+        }
     }
 
-    fn fn_args(&mut self) -> ParseResult<(Vec<Expr>, Span)> {
-        self.delimited(
+    fn fn_args(&mut self) -> (Vec<Expr>, Span) {
+        self.delimited_expr_hack_todo_replace(
             TokenKind::LParen,
-            Self::expr,
             TokenKind::Comma,
             TokenKind::RParen,
         )
     }
 
-    fn let_(&mut self) -> ParseResult<Expr> {
-        let let_ = self.token(TokenKind::Let)?;
-        let ident = self.ident()?;
-        let typepath = if self.maybe_token(TokenKind::Colon).is_some() {
-            Some(self.typepath()?)
+    fn let_(&mut self) -> Expr {
+        let let_ = self
+            .maybe_token(TokenKind::Let)
+            .expect("let is parsed predictively");
+
+        let ident = if let Some(ident) = self.maybe_ident() {
+            ident
+        } else {
+            self.unexpected();
+            return Expr {
+                kind: ExprKind::Error,
+                span: let_.span,
+            };
+        };
+        let typepath = if let Some(colon) = self.maybe_token(TokenKind::Colon) {
+            if let Some(ident_path) = self.maybe_ident_path() {
+                Some(ident_path)
+            } else {
+                self.unexpected();
+                return Expr {
+                    kind: ExprKind::Error,
+                    span: (let_.span.0, colon.span.1),
+                };
+            }
         } else {
             None
         };
-        self.token(TokenKind::Equals)?;
-        let expr = self.expr()?;
+
+        if self.maybe_token(TokenKind::Equals).is_none() {
+            self.unexpected();
+            return Expr {
+                kind: ExprKind::Error,
+                span: (
+                    let_.span.0,
+                    typepath
+                        .map(|typepath| typepath.span.1)
+                        .unwrap_or(ident.span.1),
+                ),
+            };
+        }
+
+        let expr = self.expr();
 
         let span = (let_.span.0, expr.span.1);
-        Ok(Expr {
+        Expr {
             kind: ExprKind::Let(ident, typepath, Box::new(expr)),
             span,
-        })
+        }
     }
 
-    fn set(&mut self, ident: Ident) -> ParseResult<Expr> {
-        let assign_op = self.try_peek()?;
-        let op = match assign_op.kind {
-            TokenKind::Equals => None,
-            TokenKind::PlusEq => Some(BinOp::Add),
-            TokenKind::MinusEq => Some(BinOp::Sub),
-            TokenKind::StarEq => Some(BinOp::Mul),
-            TokenKind::SlashEq => Some(BinOp::Div),
-            TokenKind::PercentEq => Some(BinOp::Rem),
-            _ => {
-                return Err(ParseError {
-                    kind: ParseErrorKind::UnexpectedToken(assign_op),
-                    span: (self.code.len() - 1, self.code.len()),
-                })
-            }
-        };
+    fn set(&mut self, ident: Ident, op: Option<BinOp>) -> Expr {
         self.lexer.next();
-        let expr = self.expr()?;
+        let expr = self.expr();
 
         let assigned_expr = if let Some(op) = op {
             let span = expr.span;
@@ -419,161 +688,52 @@ impl<'input> Parser<'input> {
         };
 
         let span = (ident.span.0, assigned_expr.span.1);
-        Ok(Expr {
+        Expr {
             kind: ExprKind::Set(ident, Box::new(assigned_expr)),
             span,
-        })
-    }
-
-    fn expr_at_binding(&mut self, binding: usize) -> ParseResult<Expr> {
-        const OPERATIONS_BY_BINDING: [fn(Token) -> Option<BinOp>; 5] = [
-            // Loosest binding
-            |token| match token.kind {
-                TokenKind::Or => Some(BinOp::Lor),
-                _ => None,
-            },
-            |token| match token.kind {
-                TokenKind::And => Some(BinOp::Land),
-                _ => None,
-            },
-            |token| match token.kind {
-                TokenKind::DoubleEquals => Some(BinOp::Eq),
-                TokenKind::BangEquals => Some(BinOp::Neq),
-                TokenKind::Lt => Some(BinOp::Lt),
-                TokenKind::Leq => Some(BinOp::Leq),
-                TokenKind::Gt => Some(BinOp::Gt),
-                TokenKind::Geq => Some(BinOp::Geq),
-                _ => None,
-            },
-            |token| match token.kind {
-                TokenKind::Plus => Some(BinOp::Add),
-                TokenKind::Minus => Some(BinOp::Sub),
-                _ => None,
-            },
-            |token| match token.kind {
-                TokenKind::Star => Some(BinOp::Mul),
-                TokenKind::Slash => Some(BinOp::Div),
-                TokenKind::Percent => Some(BinOp::Rem),
-                _ => None,
-            },
-            // Tightest binding
-        ];
-
-        if binding >= OPERATIONS_BY_BINDING.len() {
-            return self.atom();
-        }
-
-        let mut expr = self.expr_at_binding(binding + 1)?;
-        while let Some(token) = self.lexer.peek() {
-            // TODO: I want operations at the same level to be ambiguous if they're not defined
-            // together
-            let op = if let Some(op) = OPERATIONS_BY_BINDING[binding](token) {
-                op
-            } else {
-                break;
-            };
-            self.lexer.next();
-            let right = self.expr_at_binding(binding + 1)?;
-            let span = (expr.span.0, right.span.1);
-            expr = Expr {
-                kind: ExprKind::Binary(op, Box::new(expr), Box::new(right)),
-                span,
-            };
-        }
-
-        Ok(expr)
-    }
-
-    fn atom(&mut self) -> ParseResult<Expr> {
-        match self.try_peek()?.kind {
-            TokenKind::LParen => {
-                let lparen = self.lexer.next().unwrap();
-                let expr = self.expr()?;
-                let rparen = self.token(TokenKind::RParen)?;
-                Ok(Expr {
-                    span: (lparen.span.0, rparen.span.1),
-                    ..expr
-                })
-            }
-            TokenKind::Ident => {
-                // Function call or identifier
-                let ident = self.ident()?;
-                let tok = self.try_peek()?;
-                match tok.kind {
-                    TokenKind::LParen => {
-                        let (args, span) = self.fn_args()?;
-                        Ok(Expr {
-                            span: (ident.span.0, span.1),
-                            kind: ExprKind::FnCall(ident, args),
-                        })
-                    }
-                    TokenKind::Equals
-                    | TokenKind::PlusEq
-                    | TokenKind::MinusEq
-                    | TokenKind::StarEq
-                    | TokenKind::SlashEq => self.set(ident),
-                    _ => Ok(Expr {
-                        span: ident.span,
-                        kind: ExprKind::Ident(ident),
-                    }),
-                }
-            }
-            _ => {
-                let lit = self.lit()?;
-                Ok(Expr {
-                    span: lit.span,
-                    kind: ExprKind::Literal(lit),
-                })
-            }
         }
     }
 
-    fn ident(&mut self) -> ParseResult<Ident> {
-        let tok = self.token(TokenKind::Ident)?;
-        Ok(Ident {
-            sym: self.symbols.get_or_intern(self.lexer.source(&tok)),
-            span: tok.span,
-        })
-    }
-
-    fn typepath(&mut self) -> ParseResult<IdentPath> {
-        let head = self.ident()?;
-        let mut span = head.span;
-        let mut path = vec![head];
-        while let Some(_dot) = self.maybe_token(TokenKind::Dot) {
-            let next = self.ident()?;
-            span.1 = next.span.1;
-            path.push(next);
+    fn parse_unary(&mut self, op: UnaryOp, binding_power: u8) -> Expr {
+        // This is a prefix
+        let tok = self.lexer.next().expect("peeked token already");
+        let expr = self.expr_at_bp(binding_power);
+        Expr {
+            span: (tok.span.0, expr.span.1),
+            kind: ExprKind::Unary(op, Box::new(expr)),
         }
-        Ok(IdentPath { path, span })
     }
 
-    fn lit(&mut self) -> ParseResult<Literal> {
-        let tok = self.try_peek()?;
-        let src = self.lexer.source(&tok);
-
+    fn literal(&mut self) -> Expr {
+        let tok = self.lexer.next().expect("peeked already");
+        let tok_src = self.lexer.source(&tok);
         let kind = match tok.kind {
-            TokenKind::Int => LiteralKind::Int(parse_int(src, 10)),
-            TokenKind::IntHex => LiteralKind::Int(parse_int(&src[2..], 16)),
-            TokenKind::IntOct => LiteralKind::Int(parse_int(&src[2..], 8)),
-            TokenKind::IntBin => LiteralKind::Int(parse_int(&src[2..], 2)),
-            TokenKind::Float => LiteralKind::Float(self.symbols.get_or_intern(&parse_float(src))),
+            TokenKind::Int => LiteralKind::Int(parse_int(tok_src, 10)),
+            TokenKind::IntHex => LiteralKind::Int(parse_int(&tok_src[2..], 16)),
+            TokenKind::IntOct => LiteralKind::Int(parse_int(&tok_src[2..], 8)),
+            TokenKind::IntBin => LiteralKind::Int(parse_int(&tok_src[2..], 2)),
+            TokenKind::Float => {
+                LiteralKind::Float(self.symbols.get_or_intern(&parse_float(tok_src)))
+            }
             TokenKind::String => {
-                LiteralKind::String(self.symbols.get_or_intern(&parse_string(src)))
+                LiteralKind::String(self.symbols.get_or_intern(&parse_string(tok_src)))
             }
             TokenKind::True => LiteralKind::Bool(true),
             TokenKind::False => LiteralKind::Bool(false),
-            _ => {
-                return Err(ParseError {
-                    kind: ParseErrorKind::UnexpectedToken(tok),
-                    span: tok.span,
-                });
-            }
+            _ => unreachable!("peeked already"),
         };
-        self.lexer.next();
 
-        Ok(Literal { kind, span: tok.span })
+        Expr {
+            kind: ExprKind::Literal(kind),
+            span: tok.span,
+        }
     }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Assoc {
+    Left,
+    Right,
 }
 
 // TODO: Return Results for these rather than panicking
@@ -621,9 +781,9 @@ mod tests {
 
     #[test]
     fn typepath() {
-        let (got, mut sym) = run_parser("Foo.Bar", |p| p.typepath());
+        let (got, mut sym) = run_parser("Foo.Bar", |p| p.maybe_ident_path());
 
-        let want = Ok(IdentPath {
+        let want = Some(IdentPath {
             path: vec![
                 Ident { sym: sym("Foo"), span: (0, 3) },
                 Ident { sym: sym("Bar"), span: (4, 7) },
@@ -646,7 +806,7 @@ mod tests {
         }
 
         let (expr, _) = run_parser("(true and false) or true", |p| p.expr());
-        let expr = expr.expect("parse failed");
+        let expr = expr;
         assert_eq!(expr.span, (0, 24));
         let (left, _right) = expect_op(BinOp::Lor, &expr);
         assert_eq!(left.span, (0, 16));
@@ -656,8 +816,8 @@ mod tests {
     #[test]
     #[ignore = "I'm not sure this is what I want"]
     fn logical_same_level() {
-        let (got, _) = run_parser("true and false or true", |p| p.expr());
-        assert!(got.is_err());
+        // let (got, _) = run_parser("true and false or true", |p| p.expr());
+        todo!("fix this test");
     }
 
     #[test]
@@ -673,7 +833,6 @@ mod tests {
         }
 
         let (expr, _) = run_parser("1 + 2 * 3 / (4 - 5)", |p| p.expr());
-        let expr = expr.expect("parse failed");
         assert_eq!(expr.span, (0, 19));
         let (_left, right) = expect_op(BinOp::Add, &expr);
         assert_eq!(right.span, (4, 19));
@@ -684,10 +843,28 @@ mod tests {
     }
 
     #[test]
+    fn comparison_precedance() {
+        #[track_caller]
+        fn expect_op(op: BinOp, expr: &Expr) -> (&Expr, &Expr) {
+            match &expr.kind {
+                ExprKind::Binary(actual_op, left, right) if *actual_op == op => {
+                    (left.as_ref(), right.as_ref())
+                }
+                _ => panic!("expected {:?}, expr: {:?}", op, expr),
+            }
+        }
+
+        let (expr, _) = run_parser("1 + 2 == 3", |p| p.expr());
+        assert_eq!(expr.span, (0, 10));
+        let (left, _right) = expect_op(BinOp::Eq, &expr);
+        assert_eq!(left.span, (0, 5));
+        expect_op(BinOp::Add, &left);
+    }
+    #[test]
     fn fn_calls() {
         let (got, mut sym) = run_parser("foo(n, \"bar\") + 1", |p| p.expr());
 
-        let want = Ok(Expr {
+        let want = Expr {
             span: (0, 17),
             kind: ExprKind::Binary(
                 BinOp::Add,
@@ -702,23 +879,17 @@ mod tests {
                             },
                             Expr {
                                 span: (7, 12),
-                                kind: ExprKind::Literal(Literal {
-                                    span: (7, 12),
-                                    kind: LiteralKind::String(sym("bar")),
-                                }),
+                                kind: ExprKind::Literal(LiteralKind::String(sym("bar"))),
                             },
                         ],
                     ),
                 }),
                 Box::new(Expr {
                     span: (16, 17),
-                    kind: ExprKind::Literal(Literal {
-                        span: (16, 17),
-                        kind: LiteralKind::Int(1),
-                    }),
+                    kind: ExprKind::Literal(LiteralKind::Int(1)),
                 }),
             ),
-        });
+        };
         assert_eq!(got, want);
     }
 
@@ -730,7 +901,7 @@ fn the_answer(): UInt {
 }";
         let (got, mut sym) = run_parser(code, |p| p.item());
 
-        let want = Ok(Item::FnDef(FnDef {
+        let want = Item::FnDef(FnDef {
             name: Ident {
                 sym: sym("the_answer"),
                 span: (4, 14),
@@ -741,14 +912,11 @@ fn the_answer(): UInt {
                 span: (18, 22),
             }),
             body: vec![Expr {
-                kind: ExprKind::Literal(Literal {
-                    kind: LiteralKind::Int(42),
-                    span: (29, 31),
-                }),
+                kind: ExprKind::Literal(LiteralKind::Int(42)),
                 span: (29, 31),
             }],
             span: (1, 33),
-        }));
+        });
         assert_eq!(got, want);
     }
 }

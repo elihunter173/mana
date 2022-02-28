@@ -2,6 +2,8 @@ use std::fmt;
 
 use logos::{Lexer as LogosLexer, Logos};
 
+// TODO: Maybe I should have an EOF token
+
 #[derive(Logos, Copy, Clone, Debug, Eq, PartialEq)]
 pub enum TokenKind {
     // Punctuation
@@ -70,6 +72,8 @@ pub enum TokenKind {
     Or,
     #[token("not")]
     Not,
+    #[token("~")]
+    Tilde,
 
     // Keywords
     #[token("fn")]
@@ -188,6 +192,7 @@ impl fmt::Display for TokenKind {
             TokenKind::And => "and",
             TokenKind::Or => "or",
             TokenKind::Not => "not",
+            TokenKind::Tilde => "~",
 
             TokenKind::Fn => "fn",
             TokenKind::Struct => "struct",

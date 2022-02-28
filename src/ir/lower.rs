@@ -61,6 +61,7 @@ impl<'ctx> Lowerer<'ctx> {
         let mut func_ids = Vec::new();
         for item in &module.items {
             match item {
+                ast::Item::Error => unreachable!(),
                 ast::Item::FnDef(fn_def) => {
                     let func_id = self.lower_fn_def_declare(fn_def)?;
                     func_ids.push(func_id);
@@ -74,6 +75,7 @@ impl<'ctx> Lowerer<'ctx> {
         let mut func_ids = func_ids.iter();
         for item in &module.items {
             match item {
+                ast::Item::Error => unreachable!(),
                 ast::Item::FnDef(fn_def) => {
                     self.lower_fn_def_define(*func_ids.next().unwrap(), fn_def)?;
                 }
@@ -151,6 +153,8 @@ impl<'ctx> Lowerer<'ctx> {
     fn lower_expr(&mut self, expr: &ast::Expr) -> LoweringResult<Expr> {
         // TODO: I need to find a better way to track span better. Maybe lower_* returns ExprKind?
         match &expr.kind {
+            ast::ExprKind::Error => unreachable!("cannot lower error ast"),
+
             ast::ExprKind::Ident(ident) => {
                 let obj_id = self
                     .resolver
@@ -175,6 +179,8 @@ impl<'ctx> Lowerer<'ctx> {
 
             ast::ExprKind::Binary(op, left, right) => self.lower_binary(op, left, right),
             ast::ExprKind::Unary(op, expr) => self.lower_unary(op, expr),
+            ast::ExprKind::Index(_, _) => todo!("lower index"),
+            ast::ExprKind::Access(_, _) => todo!("lower access"),
 
             ast::ExprKind::Let(var_id, typepath, init_expr) => {
                 self.lower_let(expr.span, var_id, typepath.as_ref(), init_expr)
@@ -319,6 +325,7 @@ impl<'ctx> Lowerer<'ctx> {
         let op = match op {
             ast::UnaryOp::Neg => UnaryOp::Neg,
             ast::UnaryOp::Lnot => UnaryOp::Lnot,
+            ast::UnaryOp::Bnot => UnaryOp::Bnot,
         };
 
         let expr = self.lower_expr(expr)?;
@@ -343,6 +350,8 @@ impl<'ctx> Lowerer<'ctx> {
                 }
                 expr.ty
             }
+
+            UnaryOp::Bnot => todo!("bitwise not lowering"),
         };
 
         Ok(Expr {
@@ -494,14 +503,14 @@ impl<'ctx> Lowerer<'ctx> {
         })
     }
 
-    fn lower_literal(&self, lit: &ast::Literal) -> LoweringResult<Literal> {
-        let (kind, ty) = match lit.kind {
+    fn lower_literal(&self, lit: &ast::LiteralKind) -> LoweringResult<Literal> {
+        let (kind, ty) = match *lit {
             ast::LiteralKind::Bool(val) => (LiteralKind::Bool(val), self.registry.bool()),
             ast::LiteralKind::Int(val) => (LiteralKind::Int(val), self.registry.int()),
             ast::LiteralKind::Float(val) => (LiteralKind::Float(val), self.registry.float()),
             ast::LiteralKind::String(val) => (LiteralKind::String(val), self.registry.string()),
         };
-        Ok(Literal { kind, ty, span: lit.span })
+        Ok(Literal { kind, ty })
     }
 
     fn lower_block(&mut self, block: &ast::Block) -> LoweringResult<(TypeId, Vec<Expr>)> {

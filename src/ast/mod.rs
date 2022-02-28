@@ -3,37 +3,17 @@ use crate::intern::Symbol;
 pub mod lex;
 pub mod parse;
 
-// TODO: Should Span be moved?
-// TODO: Make a HasSpan trait? Various things can calculate their own span
+// TODO: Support more fine grain error nodes
 
+// TODO: Should Span be moved?
 pub type Span = (usize, usize);
+
+// TODO: Make a HasSpan trait? Various things can calculate their own span
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Spanned<T> {
     pub span: Span,
     pub kind: T,
-}
-
-pub type Literal = Spanned<LiteralKind>;
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Module {
-    pub items: Vec<Item>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Item {
-    FnDef(FnDef),
-    Import(IdentPath),
-}
-
-// TODO: Should I make this more specific (i.e. have Int, IntHex, ...) or more general?
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum LiteralKind {
-    Bool(bool),
-    Int(u128),
-    Float(Symbol),
-    String(Symbol),
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -49,6 +29,18 @@ pub struct IdentPath {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Module {
+    pub items: Vec<Item>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Item {
+    Error,
+    FnDef(FnDef),
+    Import(IdentPath),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FnDef {
     pub name: Ident,
     pub params: Vec<(Ident, IdentPath)>,
@@ -61,10 +53,14 @@ pub type Expr = Spanned<ExprKind>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExprKind {
+    Error,
+
     Ident(Ident),
-    Literal(Literal),
+    Literal(LiteralKind),
     Binary(BinOp, Box<Expr>, Box<Expr>),
     Unary(UnaryOp, Box<Expr>),
+    Index(Box<Expr>, Box<Expr>),
+    Access(Box<Expr>, Ident),
 
     Let(Ident, Option<IdentPath>, Box<Expr>),
     Set(Ident, Box<Expr>),
@@ -85,6 +81,15 @@ pub enum ExprKind {
 
 // TODO: Maybe make this a full blown new type?
 pub type Block = Vec<Expr>;
+
+// TODO: Should I make this more specific (i.e. have Int, IntHex, ...) or more general?
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LiteralKind {
+    Bool(bool),
+    Int(u128),
+    Float(Symbol),
+    String(Symbol),
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BinOp {
@@ -107,4 +112,5 @@ pub enum BinOp {
 pub enum UnaryOp {
     Neg,
     Lnot,
+    Bnot,
 }

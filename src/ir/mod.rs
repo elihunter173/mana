@@ -83,7 +83,6 @@ pub type Block = Vec<Expr>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Literal {
-    pub span: Span,
     // TODO: I need to rethink how I type literals so that I can have untyped literals like Go
     // where they become whatever type is requested of them or their default type
     pub kind: LiteralKind,
@@ -119,4 +118,5 @@ pub enum BinOp {
 pub enum UnaryOp {
     Neg,
     Lnot,
+    Bnot,
 }
