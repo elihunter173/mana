@@ -12,6 +12,6 @@ fn tailrec_fib_helper(n: Int, a: Int, b: Int): Int {
     if n == 0 {
         a
     } else {
-        tailrec_fib_helper(n - 1, a, a + b)
+        tailrec_fib_helper(n - 1, b, a + b)
     }
 }
