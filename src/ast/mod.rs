@@ -1,9 +1,8 @@
-use crate::intern::Symbol;
-
+mod display;
 pub mod lex;
 pub mod parse;
 
-// TODO: Support more fine grain error nodes
+use crate::intern::Symbol;
 
 // TODO: Should Span be moved?
 pub type Span = (usize, usize);
@@ -45,7 +44,7 @@ pub struct FnDef {
     pub name: Ident,
     pub params: Vec<(Ident, IdentPath)>,
     pub return_typepath: Option<IdentPath>,
-    pub body: Block,
+    pub body: Vec<Expr>,
     pub span: Span,
 }
 
@@ -71,7 +70,7 @@ pub enum ExprKind {
     Return(Option<Box<Expr>>),
 
     FnCall(Ident, Vec<Expr>),
-    Block(Block),
+    Block(Vec<Expr>),
     If {
         cond: Box<Expr>,
         then_expr: Box<Expr>,
@@ -79,10 +78,6 @@ pub enum ExprKind {
     },
 }
 
-// TODO: Maybe make this a full blown new type?
-pub type Block = Vec<Expr>;
-
-// TODO: Should I make this more specific (i.e. have Int, IntHex, ...) or more general?
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LiteralKind {
     Bool(bool),

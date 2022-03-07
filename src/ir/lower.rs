@@ -513,7 +513,7 @@ impl<'ctx> Lowerer<'ctx> {
         Ok(Literal { kind, ty })
     }
 
-    fn lower_block(&mut self, block: &ast::Block) -> LoweringResult<(TypeId, Vec<Expr>)> {
+    fn lower_block(&mut self, block: &Vec<ast::Expr>) -> LoweringResult<(TypeId, Vec<Expr>)> {
         self.resolver.enter_scope();
         let mut ty = self.registry.unit();
         let mut exprs = Vec::with_capacity(block.len());

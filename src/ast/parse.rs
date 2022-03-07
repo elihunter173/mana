@@ -376,7 +376,7 @@ impl<'input> Parser<'input> {
                     if let Some(rsquare) = self.maybe_token(TokenKind::RSquare) {
                         Expr {
                             span: (lhs.span.0, rsquare.span.1),
-                            kind: expr.kind,
+                            kind: ExprKind::Index(Box::new(lhs), Box::new(expr)),
                         }
                     } else {
                         self.unexpected();

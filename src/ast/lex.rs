@@ -4,6 +4,10 @@ use logos::{Lexer as LogosLexer, Logos};
 
 // TODO: Maybe I should have an EOF token
 
+// TODO: Maybe I should have the lexer keep track of newlines not converted to semicolons (i.e.
+// newlines) and expose that information as a `.raw_next()` and `.raw_peek()` for better
+// diagnostics in the parser. Same thing with not skipping comments?
+
 #[derive(Logos, Copy, Clone, Debug, Eq, PartialEq)]
 pub enum TokenKind {
     // Punctuation

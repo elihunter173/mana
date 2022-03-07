@@ -14,7 +14,7 @@ mod ty;
 // TODO: Re-enable salsa
 // mod queries;
 
-use std::fs;
+use std::{fs, io};
 
 use clap::{Parser, Subcommand};
 // use rustyline::{error::ReadlineError, Editor};
@@ -75,7 +75,7 @@ fn run(opts: &RunOpts) {
     let diagnostic_file =
         codespan_reporting::files::SimpleFile::new(opts.path.as_str(), code.as_str());
     if opts.dump_ast {
-        println!("{:?}", module);
+        println!("AST: {}", module.display(&symbol_interner));
     }
     if !diagnostics.is_empty() {
         for diag in &diagnostics {
