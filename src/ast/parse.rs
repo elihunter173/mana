@@ -223,9 +223,12 @@ impl<'input> Parser<'input> {
         self.expr_at_bp(0)
     }
 
+    // TODO: I probably need ControlFlow again to prevent infinite loops with ExprKind::Errors. Or
+    // maybe just short circuit on ExprKind::Error
+
     // This is a precedence climbing parser
-    // TODO: Decide on binding powers. Currently unary and binary operators conflict
     // Built with the help of https://matklad.github.io/2020/04/13/simple-but-powerful-pratt-parsing.html
+    // Binding powers stolen from https://wren.io/syntax.html
     fn expr_at_bp(&mut self, min_bp: u8) -> Expr {
         let tok = if let Some(tok) = self.lexer.peek() {
             tok
@@ -238,9 +241,9 @@ impl<'input> Parser<'input> {
         };
 
         let mut lhs = match tok.kind {
-            TokenKind::Minus => self.parse_unary(UnaryOp::Neg, 5),
-            TokenKind::Not => self.parse_unary(UnaryOp::Lnot, 6),
-            TokenKind::Tilde => self.parse_unary(UnaryOp::Bnot, 7),
+            TokenKind::Minus => self.parse_unary(UnaryOp::Neg, 8),
+            TokenKind::Not => self.parse_unary(UnaryOp::Lnot, 8),
+            TokenKind::Tilde => self.parse_unary(UnaryOp::Bnot, 8),
 
             // TODO: I hate duplicating this. Try to merge literal in here
             TokenKind::Int
@@ -315,7 +318,6 @@ impl<'input> Parser<'input> {
                 assoc: Assoc,
             ) -> Expr {
                 parser.lexer.next();
-                // TODO: I think I handle associativity right
                 let bp = match assoc {
                     Assoc::Left => binding_power + 1,
                     Assoc::Right => binding_power,
@@ -334,35 +336,43 @@ impl<'input> Parser<'input> {
                 if let ExprKind::Ident(ident) = expr.kind {
                     ident
                 } else {
-                    todo!("function calls are only idents");
+                    panic!("must be ident");
                 }
             }
 
             // Handle trailing operators
             lhs = match tok.kind {
-                TokenKind::Or if min_bp <= 5 => binop(self, lhs, BinOp::Lor, 5, Assoc::Left),
+                TokenKind::Equals if min_bp <= 1 => self.set(lhs, None),
+                TokenKind::PlusEq if min_bp <= 1 => self.set(lhs, Some(BinOp::Add)),
+                TokenKind::MinusEq if min_bp <= 1 => self.set(lhs, Some(BinOp::Sub)),
+                TokenKind::StarEq if min_bp <= 1 => self.set(lhs, Some(BinOp::Mul)),
+                TokenKind::SlashEq if min_bp <= 1 => self.set(lhs, Some(BinOp::Div)),
 
-                TokenKind::And if min_bp <= 6 => binop(self, lhs, BinOp::Land, 6, Assoc::Left),
+                TokenKind::Or if min_bp <= 2 => binop(self, lhs, BinOp::Lor, 2, Assoc::Left),
 
-                TokenKind::DoubleEquals if min_bp <= 7 => {
-                    binop(self, lhs, BinOp::Eq, 7, Assoc::Left)
+                TokenKind::And if min_bp <= 3 => binop(self, lhs, BinOp::Land, 3, Assoc::Left),
+
+                TokenKind::DoubleEquals if min_bp <= 4 => {
+                    binop(self, lhs, BinOp::Eq, 4, Assoc::Left)
                 }
-                TokenKind::BangEquals if min_bp <= 7 => {
-                    binop(self, lhs, BinOp::Neq, 7, Assoc::Left)
+                TokenKind::BangEquals if min_bp <= 4 => {
+                    binop(self, lhs, BinOp::Neq, 4, Assoc::Left)
                 }
-                TokenKind::Lt if min_bp <= 7 => binop(self, lhs, BinOp::Lt, 7, Assoc::Left),
-                TokenKind::Leq if min_bp <= 7 => binop(self, lhs, BinOp::Leq, 7, Assoc::Left),
-                TokenKind::Gt if min_bp <= 7 => binop(self, lhs, BinOp::Gt, 7, Assoc::Left),
-                TokenKind::Geq if min_bp <= 7 => binop(self, lhs, BinOp::Geq, 7, Assoc::Left),
 
-                TokenKind::Plus if min_bp <= 8 => binop(self, lhs, BinOp::Add, 8, Assoc::Left),
-                TokenKind::Minus if min_bp <= 8 => binop(self, lhs, BinOp::Sub, 8, Assoc::Left),
+                TokenKind::Lt if min_bp <= 5 => binop(self, lhs, BinOp::Lt, 5, Assoc::Left),
+                TokenKind::Leq if min_bp <= 5 => binop(self, lhs, BinOp::Leq, 5, Assoc::Left),
+                TokenKind::Gt if min_bp <= 5 => binop(self, lhs, BinOp::Gt, 5, Assoc::Left),
+                TokenKind::Geq if min_bp <= 5 => binop(self, lhs, BinOp::Geq, 5, Assoc::Left),
 
-                TokenKind::Star if min_bp <= 9 => binop(self, lhs, BinOp::Mul, 9, Assoc::Left),
-                TokenKind::Slash if min_bp <= 9 => binop(self, lhs, BinOp::Div, 9, Assoc::Left),
-                TokenKind::Percent if min_bp <= 9 => binop(self, lhs, BinOp::Rem, 9, Assoc::Left),
+                // TODO: Bitwise operators in between comparison and arithmetic
+                TokenKind::Plus if min_bp <= 6 => binop(self, lhs, BinOp::Add, 6, Assoc::Left),
+                TokenKind::Minus if min_bp <= 6 => binop(self, lhs, BinOp::Sub, 6, Assoc::Left),
 
-                TokenKind::LParen if min_bp <= 10 => {
+                TokenKind::Star if min_bp <= 7 => binop(self, lhs, BinOp::Mul, 7, Assoc::Left),
+                TokenKind::Slash if min_bp <= 7 => binop(self, lhs, BinOp::Div, 7, Assoc::Left),
+                TokenKind::Percent if min_bp <= 7 => binop(self, lhs, BinOp::Rem, 7, Assoc::Left),
+
+                TokenKind::LParen if min_bp <= 9 => {
                     let fn_ident = conv_ident(lhs);
                     let (args, args_span) = self.fn_args();
                     Expr {
@@ -370,7 +380,7 @@ impl<'input> Parser<'input> {
                         span: (fn_ident.span.0, args_span.1),
                     }
                 }
-                TokenKind::LSquare if min_bp <= 10 => {
+                TokenKind::LSquare if min_bp <= 9 => {
                     self.lexer.next();
                     let expr = self.expr_at_bp(0);
                     if let Some(rsquare) = self.maybe_token(TokenKind::RSquare) {
@@ -386,7 +396,7 @@ impl<'input> Parser<'input> {
                         };
                     }
                 }
-                TokenKind::Dot if min_bp <= 10 => {
+                TokenKind::Dot if min_bp <= 9 => {
                     self.lexer.next();
                     let dot = tok;
                     if let Some(ident) = self.maybe_ident() {
@@ -402,12 +412,6 @@ impl<'input> Parser<'input> {
                         };
                     }
                 }
-
-                TokenKind::Equals if min_bp <= 11 => self.set(conv_ident(lhs), None),
-                TokenKind::PlusEq if min_bp <= 11 => self.set(conv_ident(lhs), Some(BinOp::Add)),
-                TokenKind::MinusEq if min_bp <= 11 => self.set(conv_ident(lhs), Some(BinOp::Sub)),
-                TokenKind::StarEq if min_bp <= 11 => self.set(conv_ident(lhs), Some(BinOp::Mul)),
-                TokenKind::SlashEq if min_bp <= 11 => self.set(conv_ident(lhs), Some(BinOp::Div)),
 
                 _ => break,
             };
@@ -449,7 +453,7 @@ impl<'input> Parser<'input> {
                 } else if !got_comma {
                     // We didn't get a comma, so we expect to finish, but didn't
                     self.unexpected();
-                    // TODO: This is bad
+                    // TODO: Actually get the span
                     return (exprs, (0, 0));
                 } else {
                     // Expect another parameters
@@ -492,7 +496,7 @@ impl<'input> Parser<'input> {
         let cond_expr = self.expr();
         let sugar_span = cond_expr.span;
 
-        // TODO: Have block build into vec so we don't waste all this shit
+        // TODO: Have block build into vec so we don't copy all these exprs
         let if_break = Expr {
             span: sugar_span,
             kind: ExprKind::If {
@@ -666,8 +670,25 @@ impl<'input> Parser<'input> {
         }
     }
 
-    fn set(&mut self, ident: Ident, op: Option<BinOp>) -> Expr {
+    fn set(&mut self, lhs: Expr, op: Option<BinOp>) -> Expr {
+        let ident = if let ExprKind::Ident(ident) = lhs.kind {
+            ident
+        } else {
+            self.diagnostics.push(
+                Diagnostic::error()
+                    .with_message("invalid assignment expression")
+                    .with_labels(vec![Label::primary((), lhs.span.0..lhs.span.1)
+                        .with_message("must assign to identifier")]),
+            );
+            return Expr {
+                kind: ExprKind::Error,
+                span: lhs.span,
+            };
+        };
+
+        // Sitting on assignment symbol
         self.lexer.next();
+
         let expr = self.expr();
 
         let assigned_expr = if let Some(op) = op {
@@ -769,6 +790,16 @@ mod tests {
 
     use super::*;
 
+    #[track_caller]
+    fn expect_op(op: BinOp, expr: &Expr) -> (&Expr, &Expr) {
+        match &expr.kind {
+            ExprKind::Binary(actual_op, left, right) if *actual_op == op => {
+                (left.as_ref(), right.as_ref())
+            }
+            _ => panic!("expected {:?}, expr: {:?}", op, expr),
+        }
+    }
+
     fn run_parser<T: 'static>(
         code: &str,
         node: impl FnOnce(&mut Parser) -> T,
@@ -795,43 +826,24 @@ mod tests {
 
     #[test]
     fn logical_precedance() {
-        #[track_caller]
-        fn expect_op(op: BinOp, expr: &Expr) -> (&Expr, &Expr) {
-            match &expr.kind {
-                ExprKind::Binary(actual_op, left, right) if *actual_op == op => {
-                    (left.as_ref(), right.as_ref())
-                }
-                _ => panic!("expected {:?}", op),
-            }
-        }
-
-        let (expr, _) = run_parser("(true and false) or true", |p| p.expr());
-        let expr = expr;
-        assert_eq!(expr.span, (0, 24));
-        let (left, _right) = expect_op(BinOp::Lor, &expr);
-        assert_eq!(left.span, (0, 16));
-        expect_op(BinOp::Land, &left);
+        let (expr, _) = run_parser("1 + 2 == 3 and true", |p| p.expr());
+        assert_eq!(expr.span, (0, 19));
+        let (left, _right) = expect_op(BinOp::Land, &expr);
+        assert_eq!(left.span, (0, 10));
+        let (left, _right) = expect_op(BinOp::Eq, &left);
+        assert_eq!(left.span, (0, 5));
+        expect_op(BinOp::Add, &left);
     }
 
     #[test]
     #[ignore = "I'm not sure this is what I want"]
     fn logical_same_level() {
-        // let (got, _) = run_parser("true and false or true", |p| p.expr());
-        todo!("fix this test");
+        let (got, _) = run_parser("true and false or true", |p| p.expr());
+        assert_eq!(got.kind, ExprKind::Error);
     }
 
     #[test]
     fn arithmetic_precedance() {
-        #[track_caller]
-        fn expect_op(op: BinOp, expr: &Expr) -> (&Expr, &Expr) {
-            match &expr.kind {
-                ExprKind::Binary(actual_op, left, right) if *actual_op == op => {
-                    (left.as_ref(), right.as_ref())
-                }
-                _ => panic!("expected {:?}, expr: {:?}", op, expr),
-            }
-        }
-
         let (expr, _) = run_parser("1 + 2 * 3 / (4 - 5)", |p| p.expr());
         assert_eq!(expr.span, (0, 19));
         let (_left, right) = expect_op(BinOp::Add, &expr);
@@ -844,22 +856,13 @@ mod tests {
 
     #[test]
     fn comparison_precedance() {
-        #[track_caller]
-        fn expect_op(op: BinOp, expr: &Expr) -> (&Expr, &Expr) {
-            match &expr.kind {
-                ExprKind::Binary(actual_op, left, right) if *actual_op == op => {
-                    (left.as_ref(), right.as_ref())
-                }
-                _ => panic!("expected {:?}, expr: {:?}", op, expr),
-            }
-        }
-
         let (expr, _) = run_parser("1 + 2 == 3", |p| p.expr());
         assert_eq!(expr.span, (0, 10));
         let (left, _right) = expect_op(BinOp::Eq, &expr);
         assert_eq!(left.span, (0, 5));
         expect_op(BinOp::Add, &left);
     }
+
     #[test]
     fn fn_calls() {
         let (got, mut sym) = run_parser("foo(n, \"bar\") + 1", |p| p.expr());
