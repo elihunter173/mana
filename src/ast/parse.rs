@@ -9,6 +9,8 @@ use crate::{
 
 struct Parser<'input> {
     code: &'input str,
+    // TODO: I need some way to avoid cascading errors. Not sure a good way to do that tho...
+    // erroring: bool,
     diagnostics: Vec<Diagnostic>,
     lexer: Lexer<'input>,
     symbols: &'input mut SymbolInterner,
@@ -64,7 +66,7 @@ impl<'input> Parser<'input> {
         Some(IdentPath { path, span })
     }
 
-    // TODO: Have better diagnostics
+    // TODO: Remove these and have better diagnostics
     fn unexpected_token(&self, tok: Token) -> Diagnostic {
         Diagnostic::error()
             .with_message("unexpected token")
@@ -111,11 +113,40 @@ impl<'input> Parser<'input> {
     }
 
     fn item(&mut self) -> Item {
-        match self.lexer.peek() {
-            Some(Token { kind: TokenKind::Fn, .. }) => self.fn_def(),
-            Some(Token { kind: TokenKind::Import, .. }) => self.import(),
+        let tok = if let Some(tok) = self.lexer.peek() {
+            tok
+        } else {
+            self.diagnostics.push(self.unexpected_eof());
+            return Item::Error;
+        };
+
+        match tok.kind {
+            TokenKind::Fn => self.fn_def(),
+            TokenKind::Import => self.import(),
             _ => {
-                self.unexpected();
+                // TODO: How do I want to handle these errors? Maybe try to parse a whole
+                // expression?
+
+                let message = if tok.kind == TokenKind::Let {
+                    "unexpected variable declaration".to_owned()
+                } else {
+                    format!("unexpected token {}", tok.kind)
+                };
+                // Try to prevent cascading errors
+                self.diagnostics.push(
+                    Diagnostic::error()
+                        .with_message(message)
+                        .with_labels(vec![Label::primary((), tok.span.0..tok.span.1)
+                            .with_message("expected one of `fn` or `import`")]),
+                );
+                // Seek to semicolon
+                loop {
+                    match self.lexer.peek() {
+                        None => break,
+                        Some(tok) if tok.kind == TokenKind::Semicolon => break,
+                        _ => self.lexer.next(),
+                    };
+                }
                 Item::Error
             }
         }
