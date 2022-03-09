@@ -29,9 +29,9 @@ type LoweringResult<T> = Result<T, LoweringError>;
 // TODO: Simplify the public API
 pub struct Lowerer<'ctx> {
     // TODO: These should not be public
-    pub resolver: &'ctx mut Resolver,
+    pub resolver: Resolver,
     pub registry: &'ctx mut Registry,
-    pub symbol_interner: &'ctx SymbolInterner,
+    pub symbols: &'ctx SymbolInterner,
 }
 
 impl<'ctx> Lowerer<'ctx> {

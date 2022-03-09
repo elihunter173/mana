@@ -14,7 +14,7 @@ mod ty;
 // TODO: Re-enable salsa
 // mod queries;
 
-use std::{fs, io};
+use std::fs;
 
 use clap::{Parser, Subcommand};
 // use rustyline::{error::ReadlineError, Editor};
@@ -70,12 +70,12 @@ fn run(opts: &RunOpts) {
     }
 
     println!("Building {}...", opts.path);
-    let mut symbol_interner = intern::SymbolInterner::new();
-    let (module, diagnostics) = parse_module(&code, &mut symbol_interner);
+    let mut symbols = intern::SymbolInterner::new();
+    let (module, diagnostics) = parse_module(&code, &mut symbols);
     let diagnostic_file =
         codespan_reporting::files::SimpleFile::new(opts.path.as_str(), code.as_str());
     if opts.dump_ast {
-        println!("AST: {}", module.display(&symbol_interner));
+        println!("AST: {}", module.display(&symbols));
     }
     if !diagnostics.is_empty() {
         for diag in &diagnostics {
@@ -84,11 +84,13 @@ fn run(opts: &RunOpts) {
         return;
     }
 
+    // TODO: Lowering should probably be hidden behind a function, as should the registry and
+    // resolver
     let mut registry = ir::registry::Registry::with_basic_types();
-    let mut resolver = ir::resolve::Resolver::with_prelude(&mut symbol_interner, &mut registry);
+    let resolver = ir::resolve::Resolver::with_prelude(&mut symbols, &mut registry);
     let mut lowerer = Lowerer {
-        symbol_interner: &mut symbol_interner,
-        resolver: &mut resolver,
+        resolver,
+        symbols: &mut symbols,
         registry: &mut registry,
     };
     let module = match lowerer.lower_module(&module) {
@@ -104,12 +106,12 @@ fn run(opts: &RunOpts) {
         println!("{:?}", module);
     }
 
-    let mut jit = JIT::new(&symbol_interner, &registry);
-    let code_ptr = jit.compile(&module).unwrap();
+    let mut jit = JIT::new(&symbols, &registry);
+    let code_ptr = jit.compile(&module);
 
     // SAFETY: Whee! Hopefully the JIT compiler actually did compile to an arg-less and
     // return-value-less procedure
-    let code_fn = unsafe { std::mem::transmute::<_, fn() -> i64>(code_ptr) };
+    let code_fn = unsafe { std::mem::transmute::<_, fn() -> i32>(code_ptr) };
     println!("Build finished. Running.");
     println!("{}", code_fn());
 }

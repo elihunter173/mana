@@ -147,7 +147,7 @@ impl<'ctx> JIT<'ctx> {
 }
 
 impl<'ctx> JIT<'ctx> {
-    pub fn compile(&mut self, module: &ir::Module) -> anyhow::Result<*const u8> {
+    pub fn compile(&mut self, module: &ir::Module) -> *const u8 {
         let mut main_func = None;
 
         // Go through and declare all items
@@ -176,7 +176,7 @@ impl<'ctx> JIT<'ctx> {
         for item in &module.items {
             if let ir::Item::Function(func_id) = item {
                 let (sig, body) = self.registry.get_function(*func_id);
-                self.translate(sig, body.expect("undefined function"))?;
+                self.translate(sig, body.expect("undefined function"));
                 self.module
                     .define_function(self.functions[func_id], &mut self.ctx)
                     .unwrap();
@@ -192,7 +192,7 @@ impl<'ctx> JIT<'ctx> {
         // We can now retrieve a pointer to the machine code.
         let code = self.module.get_finalized_function(main_func);
 
-        Ok(code)
+        code
     }
 
     /// Create a zero-initialized data section.
@@ -215,11 +215,7 @@ impl<'ctx> JIT<'ctx> {
     }
 
     // Translate from toy-language AST nodes into Cranelift IR.
-    fn translate(
-        &mut self,
-        sig: &ir::FunctionSignature,
-        body: &ir::FunctionBody,
-    ) -> anyhow::Result<()> {
+    fn translate(&mut self, sig: &ir::FunctionSignature, body: &ir::FunctionBody) {
         // TODO: This code is duplicated from JIT::fill_signature
         for &var_id in &sig.params {
             let var = self.registry.get_variable(var_id);
@@ -304,7 +300,6 @@ impl<'ctx> JIT<'ctx> {
 
         // Tell the builder we're done with this function.
         trans.builder.finalize();
-        Ok(())
     }
 }
 
