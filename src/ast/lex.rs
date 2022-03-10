@@ -70,6 +70,22 @@ pub enum TokenKind {
     Percent,
     #[token("%=")]
     PercentEq,
+    #[token("&")]
+    Ampersand,
+    #[token("&=")]
+    AmpersandEq,
+    #[token("|")]
+    Bar,
+    #[token("|=")]
+    BarEq,
+    #[token("^")]
+    Caret,
+    #[token("^=")]
+    CaretEq,
+    #[token("<<")]
+    LtLt,
+    #[token(">>")]
+    GtGt,
     #[token("and")]
     And,
     #[token("or")]
@@ -193,6 +209,14 @@ impl fmt::Display for TokenKind {
             TokenKind::SlashEq => "/=",
             TokenKind::Percent => "%",
             TokenKind::PercentEq => "%=",
+            TokenKind::Ampersand => "&",
+            TokenKind::AmpersandEq => "&=",
+            TokenKind::Bar => "|",
+            TokenKind::BarEq => "|=",
+            TokenKind::Caret => "^",
+            TokenKind::CaretEq => "^=",
+            TokenKind::LtLt => "<<",
+            TokenKind::GtGt => ">>",
             TokenKind::And => "and",
             TokenKind::Or => "or",
             TokenKind::Not => "not",

@@ -2,6 +2,5 @@ let foo = 123
 print("Hello, World!")
 
 fn main(): Int {
-    let a = 1
-    a + 1 = 2
+    a + 1 | 2
 }

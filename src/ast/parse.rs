@@ -7,6 +7,12 @@ use crate::{
     intern::SymbolInterner,
 };
 
+pub fn parse_module(code: &str, symbols: &mut SymbolInterner) -> (Module, Vec<Diagnostic>) {
+    let mut parser = Parser::new(code, symbols);
+    let module = parser.module();
+    (module, parser.diagnostics)
+}
+
 struct Parser<'input> {
     code: &'input str,
     // TODO: I need some way to avoid cascading errors. Not sure a good way to do that tho...
@@ -14,12 +20,6 @@ struct Parser<'input> {
     diagnostics: Vec<Diagnostic>,
     lexer: Lexer<'input>,
     symbols: &'input mut SymbolInterner,
-}
-
-pub fn parse_module(code: &str, symbols: &mut SymbolInterner) -> (Module, Vec<Diagnostic>) {
-    let mut parser = Parser::new(code, symbols);
-    let module = parser.module();
-    (module, parser.diagnostics)
 }
 
 impl<'input> Parser<'input> {
@@ -251,16 +251,18 @@ impl<'input> Parser<'input> {
     }
 
     fn expr(&mut self) -> Expr {
-        self.expr_at_bp(0)
+        self.expr_at_bp(Precedence::Base)
     }
 
     // TODO: I probably need ControlFlow again to prevent infinite loops with ExprKind::Errors. Or
     // maybe just short circuit on ExprKind::Error
 
+    // TODO: Allow comparison chaining a la Python
+
     // This is a precedence climbing parser
     // Built with the help of https://matklad.github.io/2020/04/13/simple-but-powerful-pratt-parsing.html
     // Binding powers stolen from https://wren.io/syntax.html
-    fn expr_at_bp(&mut self, min_bp: u8) -> Expr {
+    fn expr_at_bp(&mut self, min_bp: Precedence) -> Expr {
         let tok = if let Some(tok) = self.lexer.peek() {
             tok
         } else {
@@ -272,9 +274,9 @@ impl<'input> Parser<'input> {
         };
 
         let mut lhs = match tok.kind {
-            TokenKind::Minus => self.parse_unary(UnaryOp::Neg, 8),
-            TokenKind::Not => self.parse_unary(UnaryOp::Lnot, 8),
-            TokenKind::Tilde => self.parse_unary(UnaryOp::Bnot, 8),
+            TokenKind::Minus => self.parse_unary(UnaryOp::Neg, Precedence::Unary),
+            TokenKind::Not => self.parse_unary(UnaryOp::Lnot, Precedence::Unary),
+            TokenKind::Tilde => self.parse_unary(UnaryOp::Bnot, Precedence::LNot),
 
             // TODO: I hate duplicating this. Try to merge literal in here
             TokenKind::Int
@@ -297,7 +299,7 @@ impl<'input> Parser<'input> {
             TokenKind::LParen => {
                 self.lexer.next();
                 let lparen = tok;
-                let expr = self.expr_at_bp(0);
+                let expr = self.expr_at_bp(Precedence::Base);
                 if let Some(rparen) = self.maybe_token(TokenKind::RParen) {
                     Expr {
                         span: (lparen.span.0, rparen.span.1),
@@ -312,18 +314,18 @@ impl<'input> Parser<'input> {
                 }
             }
 
-            TokenKind::LCurly if min_bp == 0 => {
+            TokenKind::LCurly if min_bp == Precedence::Base => {
                 let (block, span) = self.block();
                 Expr { kind: ExprKind::Block(block), span }
             }
-            TokenKind::Loop if min_bp == 0 => self.loop_loop(),
-            TokenKind::While if min_bp == 0 => self.while_loop(),
-            TokenKind::Break if min_bp == 0 => self.break_(),
-            TokenKind::Continue if min_bp == 0 => self.continue_(),
-            TokenKind::Return if min_bp == 0 => self.return_(),
+            TokenKind::Loop if min_bp == Precedence::Base => self.loop_loop(),
+            TokenKind::While if min_bp == Precedence::Base => self.while_loop(),
+            TokenKind::Break if min_bp == Precedence::Base => self.break_(),
+            TokenKind::Continue if min_bp == Precedence::Base => self.continue_(),
+            TokenKind::Return if min_bp == Precedence::Base => self.return_(),
 
-            TokenKind::If if min_bp == 0 => self.if_chain(),
-            TokenKind::Let if min_bp == 0 => self.let_(),
+            TokenKind::If if min_bp == Precedence::Base => self.if_chain(),
+            TokenKind::Let if min_bp == Precedence::Base => self.let_(),
 
             _ => {
                 self.unexpected();
@@ -341,25 +343,6 @@ impl<'input> Parser<'input> {
                 break;
             };
 
-            fn binop(
-                parser: &mut Parser,
-                lhs: Expr,
-                op: BinOp,
-                binding_power: u8,
-                assoc: Assoc,
-            ) -> Expr {
-                parser.lexer.next();
-                let bp = match assoc {
-                    Assoc::Left => binding_power + 1,
-                    Assoc::Right => binding_power,
-                };
-                let rhs = parser.expr_at_bp(bp);
-                Expr {
-                    span: (lhs.span.0, rhs.span.1),
-                    kind: ExprKind::Binary(op, Box::new(lhs), Box::new(rhs)),
-                }
-            }
-
             // Force the left hand side to be an ident
             // TODO: This is bad, but making changes to this requires significant changes to
             // everything else
@@ -371,39 +354,90 @@ impl<'input> Parser<'input> {
                 }
             }
 
+            let precedence = match tok.kind {
+                TokenKind::Colon => Precedence::Param,
+
+                TokenKind::Equals
+                | TokenKind::PlusEq
+                | TokenKind::MinusEq
+                | TokenKind::StarEq
+                | TokenKind::SlashEq
+                | TokenKind::PercentEq
+                | TokenKind::AmpersandEq
+                | TokenKind::BarEq
+                | TokenKind::CaretEq => Precedence::Set,
+
+                TokenKind::Or => Precedence::LOr,
+                TokenKind::And => Precedence::LAnd,
+
+                TokenKind::DoubleEquals | TokenKind::BangEquals => Precedence::CmpEq,
+
+                TokenKind::Lt | TokenKind::Leq | TokenKind::Gt | TokenKind::Geq => {
+                    Precedence::CmpOrd
+                }
+
+                TokenKind::Plus | TokenKind::Minus => Precedence::AddSub,
+                TokenKind::Star | TokenKind::Slash | TokenKind::Percent => Precedence::MulDiv,
+
+                TokenKind::Ampersand => Precedence::BitAnd,
+                TokenKind::Bar => Precedence::BitOr,
+                TokenKind::Caret | TokenKind::LtLt | TokenKind::GtGt => Precedence::BitAmbiguous,
+
+                TokenKind::LParen | TokenKind::LSquare | TokenKind::Dot => {
+                    Precedence::AccessIndexOrCall
+                }
+
+                _ => break,
+            };
+
+            // TODO: Maybe this should return control flow...
+            let binop = |parser: &mut Parser, lhs: Expr, op: BinOp| -> Expr {
+                parser.lexer.next();
+                let rhs = parser.expr_at_bp(precedence);
+                Expr {
+                    span: (lhs.span.0, rhs.span.1),
+                    kind: ExprKind::Binary(op, Box::new(lhs), Box::new(rhs)),
+                }
+            };
+
+            match compare_precedence(min_bp, precedence) {
+                Binding::LeftHigher => break,
+                Binding::RightHigher => {}
+                Binding::Ambiguous => {
+                    self.diagnostics.push(
+                        Diagnostic::error()
+                            .with_message("ambiguous operator precedence")
+                            .with_labels(vec![Label::primary((), tok.span.0..tok.span.1)]),
+                    );
+                    break;
+                }
+            }
+
             // Handle trailing operators
             lhs = match tok.kind {
-                TokenKind::Equals if min_bp <= 1 => self.set(lhs, None),
-                TokenKind::PlusEq if min_bp <= 1 => self.set(lhs, Some(BinOp::Add)),
-                TokenKind::MinusEq if min_bp <= 1 => self.set(lhs, Some(BinOp::Sub)),
-                TokenKind::StarEq if min_bp <= 1 => self.set(lhs, Some(BinOp::Mul)),
-                TokenKind::SlashEq if min_bp <= 1 => self.set(lhs, Some(BinOp::Div)),
+                // TODO: Figure out how to re-use set here
+                TokenKind::Equals => self.set(lhs, None),
+                TokenKind::PlusEq => self.set(lhs, Some(BinOp::Add)),
+                TokenKind::MinusEq => self.set(lhs, Some(BinOp::Sub)),
+                TokenKind::StarEq => self.set(lhs, Some(BinOp::Mul)),
+                TokenKind::SlashEq => self.set(lhs, Some(BinOp::Div)),
 
-                TokenKind::Or if min_bp <= 2 => binop(self, lhs, BinOp::Lor, 2, Assoc::Left),
+                TokenKind::Or => binop(self, lhs, BinOp::Lor),
+                TokenKind::And => binop(self, lhs, BinOp::Land),
+                TokenKind::DoubleEquals => binop(self, lhs, BinOp::Eq),
+                TokenKind::BangEquals => binop(self, lhs, BinOp::Neq),
+                TokenKind::Lt => binop(self, lhs, BinOp::Lt),
+                TokenKind::Leq => binop(self, lhs, BinOp::Leq),
+                TokenKind::Gt => binop(self, lhs, BinOp::Gt),
+                TokenKind::Geq => binop(self, lhs, BinOp::Geq),
+                TokenKind::Plus => binop(self, lhs, BinOp::Add),
+                TokenKind::Minus => binop(self, lhs, BinOp::Sub),
 
-                TokenKind::And if min_bp <= 3 => binop(self, lhs, BinOp::Land, 3, Assoc::Left),
+                TokenKind::Star => binop(self, lhs, BinOp::Mul),
+                TokenKind::Slash => binop(self, lhs, BinOp::Div),
+                TokenKind::Percent => binop(self, lhs, BinOp::Rem),
 
-                TokenKind::DoubleEquals if min_bp <= 4 => {
-                    binop(self, lhs, BinOp::Eq, 4, Assoc::Left)
-                }
-                TokenKind::BangEquals if min_bp <= 4 => {
-                    binop(self, lhs, BinOp::Neq, 4, Assoc::Left)
-                }
-
-                TokenKind::Lt if min_bp <= 5 => binop(self, lhs, BinOp::Lt, 5, Assoc::Left),
-                TokenKind::Leq if min_bp <= 5 => binop(self, lhs, BinOp::Leq, 5, Assoc::Left),
-                TokenKind::Gt if min_bp <= 5 => binop(self, lhs, BinOp::Gt, 5, Assoc::Left),
-                TokenKind::Geq if min_bp <= 5 => binop(self, lhs, BinOp::Geq, 5, Assoc::Left),
-
-                // TODO: Bitwise operators in between comparison and arithmetic
-                TokenKind::Plus if min_bp <= 6 => binop(self, lhs, BinOp::Add, 6, Assoc::Left),
-                TokenKind::Minus if min_bp <= 6 => binop(self, lhs, BinOp::Sub, 6, Assoc::Left),
-
-                TokenKind::Star if min_bp <= 7 => binop(self, lhs, BinOp::Mul, 7, Assoc::Left),
-                TokenKind::Slash if min_bp <= 7 => binop(self, lhs, BinOp::Div, 7, Assoc::Left),
-                TokenKind::Percent if min_bp <= 7 => binop(self, lhs, BinOp::Rem, 7, Assoc::Left),
-
-                TokenKind::LParen if min_bp <= 9 => {
+                TokenKind::LParen => {
                     let fn_ident = conv_ident(lhs);
                     let (args, args_span) = self.fn_args();
                     Expr {
@@ -411,9 +445,9 @@ impl<'input> Parser<'input> {
                         span: (fn_ident.span.0, args_span.1),
                     }
                 }
-                TokenKind::LSquare if min_bp <= 9 => {
+                TokenKind::LSquare => {
                     self.lexer.next();
-                    let expr = self.expr_at_bp(0);
+                    let expr = self.expr_at_bp(Precedence::Base);
                     if let Some(rsquare) = self.maybe_token(TokenKind::RSquare) {
                         Expr {
                             span: (lhs.span.0, rsquare.span.1),
@@ -427,7 +461,7 @@ impl<'input> Parser<'input> {
                         };
                     }
                 }
-                TokenKind::Dot if min_bp <= 9 => {
+                TokenKind::Dot => {
                     self.lexer.next();
                     let dot = tok;
                     if let Some(ident) = self.maybe_ident() {
@@ -458,7 +492,7 @@ impl<'input> Parser<'input> {
         delimiter: TokenKind,
         end: TokenKind,
     ) -> (Vec<Expr>, Span) {
-        let exprs = Vec::new();
+        let mut exprs = Vec::new();
 
         let start_tok = if let Some(tok) = self.maybe_token(start) {
             tok
@@ -468,7 +502,6 @@ impl<'input> Parser<'input> {
             return (exprs, (0, 0));
         };
 
-        let mut exprs = Vec::new();
         let end_tok = if let Some(tok) = self.maybe_token(end) {
             tok
         } else {
@@ -746,10 +779,10 @@ impl<'input> Parser<'input> {
         }
     }
 
-    fn parse_unary(&mut self, op: UnaryOp, binding_power: u8) -> Expr {
+    fn parse_unary(&mut self, op: UnaryOp, precedence: Precedence) -> Expr {
         // This is a prefix
         let tok = self.lexer.next().expect("peeked token already");
-        let expr = self.expr_at_bp(binding_power);
+        let expr = self.expr_at_bp(precedence);
         Expr {
             span: (tok.span.0, expr.span.1),
             kind: ExprKind::Unary(op, Box::new(expr)),
@@ -782,10 +815,247 @@ impl<'input> Parser<'input> {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-enum Assoc {
-    Left,
-    Right,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Precedence {
+    AccessIndexOrCall,
+    Unary,
+    MulDiv,
+    AddSub,
+    BitAnd,
+    BitOr,
+    BitAmbiguous,
+    CmpOrd,
+    CmpEq,
+    LNot,
+    LAnd,
+    LOr,
+    Set,
+    Param,
+    Base,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Binding {
+    LeftHigher,
+    RightHigher,
+    Ambiguous,
+}
+
+fn compare_precedence(lhs: Precedence, rhs: Precedence) -> Binding {
+    match lhs {
+        Precedence::AccessIndexOrCall => match rhs {
+            Precedence::AccessIndexOrCall => Binding::LeftHigher,
+            _ => Binding::LeftHigher,
+        },
+        Precedence::Unary => match rhs {
+            Precedence::Unary => Binding::LeftHigher,
+            Precedence::AccessIndexOrCall => Binding::RightHigher,
+            Precedence::MulDiv
+            | Precedence::AddSub
+            | Precedence::BitAnd
+            | Precedence::BitOr
+            | Precedence::BitAmbiguous
+            | Precedence::CmpOrd
+            | Precedence::CmpEq
+            | Precedence::LNot
+            | Precedence::LAnd
+            | Precedence::LOr
+            | Precedence::Set
+            | Precedence::Param
+            | Precedence::Base => Binding::LeftHigher,
+        },
+        Precedence::MulDiv => match rhs {
+            Precedence::MulDiv => Binding::LeftHigher,
+            Precedence::AccessIndexOrCall | Precedence::Unary => Binding::RightHigher,
+            Precedence::BitAnd | Precedence::BitOr | Precedence::BitAmbiguous => Binding::Ambiguous,
+            Precedence::AddSub
+            | Precedence::CmpOrd
+            | Precedence::CmpEq
+            | Precedence::LNot
+            | Precedence::LAnd
+            | Precedence::LOr
+            | Precedence::Set
+            | Precedence::Param
+            | Precedence::Base => Binding::LeftHigher,
+        },
+        Precedence::AddSub => match rhs {
+            Precedence::AddSub => Binding::LeftHigher,
+            Precedence::AccessIndexOrCall | Precedence::Unary | Precedence::MulDiv => {
+                Binding::RightHigher
+            }
+            Precedence::BitAnd | Precedence::BitOr | Precedence::BitAmbiguous => Binding::Ambiguous,
+            Precedence::CmpOrd
+            | Precedence::CmpEq
+            | Precedence::LNot
+            | Precedence::LAnd
+            | Precedence::LOr
+            | Precedence::Set
+            | Precedence::Param
+            | Precedence::Base => Binding::LeftHigher,
+        },
+        Precedence::BitAnd => match rhs {
+            Precedence::BitAnd => Binding::LeftHigher,
+            Precedence::AccessIndexOrCall | Precedence::Unary => Binding::RightHigher,
+            Precedence::MulDiv
+            | Precedence::AddSub
+            | Precedence::BitOr
+            | Precedence::BitAmbiguous => Binding::Ambiguous,
+            Precedence::CmpOrd
+            | Precedence::CmpEq
+            | Precedence::LNot
+            | Precedence::LAnd
+            | Precedence::LOr
+            | Precedence::Set
+            | Precedence::Param
+            | Precedence::Base => Binding::LeftHigher,
+        },
+        Precedence::BitOr => match rhs {
+            Precedence::BitOr => Binding::LeftHigher,
+            Precedence::AccessIndexOrCall | Precedence::Unary => Binding::RightHigher,
+            Precedence::MulDiv
+            | Precedence::AddSub
+            | Precedence::BitAnd
+            | Precedence::BitAmbiguous => Binding::Ambiguous,
+            Precedence::CmpOrd
+            | Precedence::CmpEq
+            | Precedence::LNot
+            | Precedence::LAnd
+            | Precedence::LOr
+            | Precedence::Set
+            | Precedence::Param
+            | Precedence::Base => Binding::LeftHigher,
+        },
+        Precedence::BitAmbiguous => match rhs {
+            Precedence::BitAmbiguous => Binding::Ambiguous,
+            Precedence::AccessIndexOrCall | Precedence::Unary => Binding::RightHigher,
+            Precedence::MulDiv | Precedence::AddSub | Precedence::BitAnd | Precedence::BitOr => {
+                Binding::Ambiguous
+            }
+            Precedence::CmpOrd
+            | Precedence::CmpEq
+            | Precedence::LNot
+            | Precedence::LAnd
+            | Precedence::LOr
+            | Precedence::Set
+            | Precedence::Param
+            | Precedence::Base => Binding::LeftHigher,
+        },
+        Precedence::CmpOrd => match rhs {
+            Precedence::CmpOrd => Binding::Ambiguous,
+            Precedence::AccessIndexOrCall
+            | Precedence::Unary
+            | Precedence::MulDiv
+            | Precedence::AddSub
+            | Precedence::BitAnd
+            | Precedence::BitOr
+            | Precedence::BitAmbiguous => Binding::RightHigher,
+            Precedence::CmpEq
+            | Precedence::LNot
+            | Precedence::LAnd
+            | Precedence::LOr
+            | Precedence::Set
+            | Precedence::Param
+            | Precedence::Base => Binding::LeftHigher,
+        },
+        Precedence::CmpEq => match rhs {
+            Precedence::CmpEq => Binding::Ambiguous,
+            Precedence::AccessIndexOrCall
+            | Precedence::Unary
+            | Precedence::MulDiv
+            | Precedence::AddSub
+            | Precedence::BitAnd
+            | Precedence::BitOr
+            | Precedence::BitAmbiguous
+            | Precedence::CmpOrd => Binding::RightHigher,
+            Precedence::LNot
+            | Precedence::LAnd
+            | Precedence::LOr
+            | Precedence::Set
+            | Precedence::Param
+            | Precedence::Base => Binding::LeftHigher,
+        },
+        Precedence::LNot => match rhs {
+            Precedence::LNot => Binding::LeftHigher,
+            Precedence::AccessIndexOrCall
+            | Precedence::Unary
+            | Precedence::MulDiv
+            | Precedence::AddSub
+            | Precedence::BitAnd
+            | Precedence::BitOr
+            | Precedence::BitAmbiguous
+            | Precedence::CmpOrd
+            | Precedence::CmpEq => Binding::RightHigher,
+            Precedence::LAnd
+            | Precedence::LOr
+            | Precedence::Set
+            | Precedence::Param
+            | Precedence::Base => Binding::LeftHigher,
+        },
+        Precedence::LAnd => match rhs {
+            Precedence::LAnd => Binding::LeftHigher,
+            Precedence::AccessIndexOrCall
+            | Precedence::Unary
+            | Precedence::MulDiv
+            | Precedence::AddSub
+            | Precedence::BitAnd
+            | Precedence::BitOr
+            | Precedence::BitAmbiguous
+            | Precedence::CmpOrd
+            | Precedence::CmpEq
+            | Precedence::LNot => Binding::RightHigher,
+            Precedence::LOr => Binding::Ambiguous,
+            Precedence::Set | Precedence::Param | Precedence::Base => Binding::LeftHigher,
+        },
+        Precedence::LOr => match rhs {
+            Precedence::LOr => Binding::LeftHigher,
+            Precedence::AccessIndexOrCall
+            | Precedence::Unary
+            | Precedence::MulDiv
+            | Precedence::AddSub
+            | Precedence::BitAnd
+            | Precedence::BitOr
+            | Precedence::BitAmbiguous
+            | Precedence::CmpOrd
+            | Precedence::CmpEq
+            | Precedence::LNot => Binding::RightHigher,
+            Precedence::LAnd => Binding::Ambiguous,
+            Precedence::Set | Precedence::Param | Precedence::Base => Binding::LeftHigher,
+        },
+        Precedence::Set => match rhs {
+            Precedence::Set => Binding::Ambiguous,
+            Precedence::AccessIndexOrCall
+            | Precedence::Unary
+            | Precedence::MulDiv
+            | Precedence::AddSub
+            | Precedence::BitAnd
+            | Precedence::BitOr
+            | Precedence::BitAmbiguous
+            | Precedence::CmpOrd
+            | Precedence::CmpEq
+            | Precedence::LNot
+            | Precedence::LAnd
+            | Precedence::LOr => Binding::RightHigher,
+            Precedence::Param | Precedence::Base => Binding::LeftHigher,
+        },
+        Precedence::Param => match rhs {
+            Precedence::Param => Binding::Ambiguous,
+            Precedence::AccessIndexOrCall
+            | Precedence::Unary
+            | Precedence::MulDiv
+            | Precedence::AddSub
+            | Precedence::BitAnd
+            | Precedence::BitOr
+            | Precedence::BitAmbiguous
+            | Precedence::CmpOrd
+            | Precedence::CmpEq
+            | Precedence::LNot
+            | Precedence::LAnd
+            | Precedence::LOr
+            | Precedence::Set => Binding::RightHigher,
+            Precedence::Base => Binding::LeftHigher,
+        },
+        Precedence::Base => Binding::RightHigher,
+    }
 }
 
 // TODO: Return Results for these rather than panicking
@@ -853,6 +1123,75 @@ mod tests {
             span: (0, 7),
         });
         assert_eq!(got, want);
+    }
+
+    #[test]
+    fn precedance_rules() {
+        use Precedence::*;
+        let binding_powers = [
+            AccessIndexOrCall,
+            Unary,
+            MulDiv,
+            AddSub,
+            BitAnd,
+            BitOr,
+            BitAmbiguous,
+            CmpOrd,
+            CmpEq,
+            LNot,
+            LAnd,
+            LOr,
+            Set,
+            Param,
+        ];
+
+        for &a in &binding_powers {
+            for &b in &binding_powers {
+                let ab = compare_precedence(a, b);
+                let ba = compare_precedence(b, a);
+
+                // Symmetric
+                if ab == Binding::Ambiguous {
+                    assert_eq!(ba, Binding::Ambiguous, "asymmetric a={a:?}, b={b:?}");
+                }
+                if a != b && ab == Binding::LeftHigher {
+                    assert_eq!(ba, Binding::RightHigher, "asymmetric a={a:?}, b={b:?}");
+                }
+                if a != b && ab == Binding::RightHigher {
+                    assert_eq!(ba, Binding::LeftHigher, "asymmetric a={a:?}, b={b:?}");
+                }
+
+                // Transitive
+                for &c in &binding_powers {
+                    let bc = compare_precedence(b, c);
+                    let ac = compare_precedence(a, b);
+
+                    // transitive
+                    if ab == Binding::LeftHigher && bc == Binding::LeftHigher {
+                        assert_eq!(
+                            ac,
+                            Binding::LeftHigher,
+                            "non-transitive a={a:?}, b={b:?}, c={c:?}"
+                        );
+                    }
+                    if ab == Binding::RightHigher && bc == Binding::RightHigher {
+                        assert_eq!(
+                            ac,
+                            Binding::RightHigher,
+                            "non-transitive a={a:?}, b={b:?}, c={c:?}"
+                        );
+                    }
+                }
+            }
+        }
+
+        let (expr, _) = run_parser("1 + 2 == 3 and true", |p| p.expr());
+        assert_eq!(expr.span, (0, 19));
+        let (left, _right) = expect_op(BinOp::Land, &expr);
+        assert_eq!(left.span, (0, 10));
+        let (left, _right) = expect_op(BinOp::Eq, &left);
+        assert_eq!(left.span, (0, 5));
+        expect_op(BinOp::Add, &left);
     }
 
     #[test]
