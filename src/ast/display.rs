@@ -291,10 +291,16 @@ impl Sexpr for BinOp {
             BinOp::Mul => "*",
             BinOp::Div => "/",
             BinOp::Rem => "%",
+            BinOp::Band => "&",
+            BinOp::Bor => "|",
+            BinOp::Bxor => "^",
+
             BinOp::Eq => "==",
             BinOp::Neq => "!=",
+
             BinOp::Land => "and",
             BinOp::Lor => "or",
+
             BinOp::Lt => "<",
             BinOp::Leq => "<=",
             BinOp::Gt => ">",

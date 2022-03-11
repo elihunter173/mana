@@ -1,6 +1,6 @@
-let foo = 123
-print("Hello, World!")
+// let foo = 123
+// print("Hello, World!")
 
 fn main(): Int {
-    a + 1 | 2
+    ~0x1 & 0xF
 }

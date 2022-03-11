@@ -240,14 +240,20 @@ impl<'ctx> Lowerer<'ctx> {
             ast::BinOp::Mul => BinOp::Mul,
             ast::BinOp::Div => BinOp::Div,
             ast::BinOp::Rem => BinOp::Rem,
+            ast::BinOp::Band => BinOp::Band,
+            ast::BinOp::Bor => BinOp::Bor,
+            ast::BinOp::Bxor => BinOp::Bxor,
+
+            ast::BinOp::Land => BinOp::Land,
+            ast::BinOp::Lor => BinOp::Lor,
+
             ast::BinOp::Eq => BinOp::Eq,
             ast::BinOp::Neq => BinOp::Neq,
+
             ast::BinOp::Lt => BinOp::Lt,
             ast::BinOp::Leq => BinOp::Leq,
             ast::BinOp::Gt => BinOp::Gt,
             ast::BinOp::Geq => BinOp::Geq,
-            ast::BinOp::Land => BinOp::Land,
-            ast::BinOp::Lor => BinOp::Lor,
         };
 
         let left = self.lower_expr(left)?;
@@ -255,7 +261,14 @@ impl<'ctx> Lowerer<'ctx> {
 
         // Type check
         let ty = match op {
-            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
+            BinOp::Add
+            | BinOp::Sub
+            | BinOp::Mul
+            | BinOp::Div
+            | BinOp::Rem
+            | BinOp::Band
+            | BinOp::Bor
+            | BinOp::Bxor => {
                 // TODO: Eventually this should use our function call machinery
                 if !self.registry.get_type(left.ty).is_numeric() {
                     return Err(LoweringError {
@@ -368,7 +381,15 @@ impl<'ctx> Lowerer<'ctx> {
                 expr.ty
             }
 
-            UnaryOp::Bnot => todo!("bitwise not lowering"),
+            UnaryOp::Bnot => {
+                if !self.registry.get_type(expr.ty).is_numeric() {
+                    return Err(LoweringError {
+                        kind: LoweringErrorKind::InvalidType(expr.ty),
+                        span: expr.span,
+                    });
+                }
+                expr.ty
+            }
         };
 
         Ok(Expr {

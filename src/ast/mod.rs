@@ -93,10 +93,16 @@ pub enum BinOp {
     Mul,
     Div,
     Rem,
-    Eq,
-    Neq,
+    Band,
+    Bor,
+    Bxor,
+
     Land,
     Lor,
+
+    Eq,
+    Neq,
+
     Lt,
     Leq,
     Gt,

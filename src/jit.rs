@@ -504,9 +504,13 @@ impl<'a> FunctionTranslator<'a> {
             ir::BinOp::Mul => ins.imul(lhs, rhs),
             ir::BinOp::Div => ins.sdiv(lhs, rhs),
             ir::BinOp::Rem => ins.srem(lhs, rhs),
+            ir::BinOp::Band => ins.band(lhs, rhs),
+            ir::BinOp::Bor => ins.bor(lhs, rhs),
+            ir::BinOp::Bxor => ins.bxor(lhs, rhs),
 
             ir::BinOp::Eq => ins.icmp(IntCC::Equal, lhs, rhs),
             ir::BinOp::Neq => ins.icmp(IntCC::NotEqual, lhs, rhs),
+
             ir::BinOp::Lt => ins.icmp(IntCC::SignedLessThan, lhs, rhs),
             ir::BinOp::Leq => ins.icmp(IntCC::SignedLessThanOrEqual, lhs, rhs),
             ir::BinOp::Gt => ins.icmp(IntCC::SignedGreaterThan, lhs, rhs),
@@ -533,7 +537,10 @@ impl<'a> FunctionTranslator<'a> {
                 self.builder.ins().bnot(val.0[0])
             }
 
-            ir::UnaryOp::Bnot => todo!("bitwise not"),
+            ir::UnaryOp::Bnot => {
+                let val = self.translate_expr(expr)?;
+                self.builder.ins().bnot(val.0[0])
+            }
         };
         ControlFlow::Continue(ValueDescription(Vec::from([val])))
     }

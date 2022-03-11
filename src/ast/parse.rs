@@ -275,8 +275,8 @@ impl<'input> Parser<'input> {
 
         let mut lhs = match tok.kind {
             TokenKind::Minus => self.parse_unary(UnaryOp::Neg, Precedence::Unary),
-            TokenKind::Not => self.parse_unary(UnaryOp::Lnot, Precedence::Unary),
-            TokenKind::Tilde => self.parse_unary(UnaryOp::Bnot, Precedence::LNot),
+            TokenKind::Tilde => self.parse_unary(UnaryOp::Bnot, Precedence::Unary),
+            TokenKind::Not => self.parse_unary(UnaryOp::Lnot, Precedence::LNot),
 
             // TODO: I hate duplicating this. Try to merge literal in here
             TokenKind::Int
@@ -421,21 +421,31 @@ impl<'input> Parser<'input> {
                 TokenKind::MinusEq => self.set(lhs, Some(BinOp::Sub)),
                 TokenKind::StarEq => self.set(lhs, Some(BinOp::Mul)),
                 TokenKind::SlashEq => self.set(lhs, Some(BinOp::Div)),
+                TokenKind::AmpersandEq => self.set(lhs, Some(BinOp::Band)),
+                TokenKind::BarEq => self.set(lhs, Some(BinOp::Bor)),
+                TokenKind::CaretEq => self.set(lhs, Some(BinOp::Bxor)),
 
-                TokenKind::Or => binop(self, lhs, BinOp::Lor),
-                TokenKind::And => binop(self, lhs, BinOp::Land),
-                TokenKind::DoubleEquals => binop(self, lhs, BinOp::Eq),
-                TokenKind::BangEquals => binop(self, lhs, BinOp::Neq),
-                TokenKind::Lt => binop(self, lhs, BinOp::Lt),
-                TokenKind::Leq => binop(self, lhs, BinOp::Leq),
-                TokenKind::Gt => binop(self, lhs, BinOp::Gt),
-                TokenKind::Geq => binop(self, lhs, BinOp::Geq),
                 TokenKind::Plus => binop(self, lhs, BinOp::Add),
                 TokenKind::Minus => binop(self, lhs, BinOp::Sub),
 
                 TokenKind::Star => binop(self, lhs, BinOp::Mul),
                 TokenKind::Slash => binop(self, lhs, BinOp::Div),
                 TokenKind::Percent => binop(self, lhs, BinOp::Rem),
+
+                TokenKind::Ampersand => binop(self, lhs, BinOp::Band),
+                TokenKind::Bar => binop(self, lhs, BinOp::Bor),
+                TokenKind::Caret => binop(self, lhs, BinOp::Bxor),
+
+                TokenKind::And => binop(self, lhs, BinOp::Land),
+                TokenKind::Or => binop(self, lhs, BinOp::Lor),
+
+                TokenKind::DoubleEquals => binop(self, lhs, BinOp::Eq),
+                TokenKind::BangEquals => binop(self, lhs, BinOp::Neq),
+
+                TokenKind::Lt => binop(self, lhs, BinOp::Lt),
+                TokenKind::Leq => binop(self, lhs, BinOp::Leq),
+                TokenKind::Gt => binop(self, lhs, BinOp::Gt),
+                TokenKind::Geq => binop(self, lhs, BinOp::Geq),
 
                 TokenKind::LParen => {
                     let fn_ident = conv_ident(lhs);

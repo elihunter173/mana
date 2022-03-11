@@ -104,14 +104,20 @@ pub enum BinOp {
     Mul,
     Div,
     Rem,
+    Band,
+    Bor,
+    Bxor,
+
+    Land,
+    Lor,
+
     Eq,
     Neq,
+
     Lt,
     Leq,
     Gt,
     Geq,
-    Land,
-    Lor,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
