@@ -26,12 +26,29 @@ pub enum LoweringErrorKind {
 
 type LoweringResult<T> = Result<T, LoweringError>;
 
-// TODO: Simplify the public API
-pub struct Lowerer<'ctx> {
-    // TODO: These should not be public
-    pub resolver: Resolver,
-    pub registry: &'ctx mut Registry,
-    pub symbols: &'ctx SymbolInterner,
+pub struct LoweredModule {
+    pub ir: Module,
+    pub registry: Registry,
+}
+
+pub fn lower_module(
+    module: &ast::Module,
+    symbols: &mut SymbolInterner,
+) -> Result<LoweredModule, LoweringError> {
+    let mut registry = Registry::with_basic_types();
+    let resolver = Resolver::with_prelude(symbols, &mut registry);
+    let mut lowerer = Lowerer { resolver, registry, symbols };
+    let module = lowerer.lower_module(module)?;
+    Ok(LoweredModule {
+        ir: module,
+        registry: lowerer.registry,
+    })
+}
+
+struct Lowerer<'ctx> {
+    resolver: Resolver,
+    registry: Registry,
+    symbols: &'ctx SymbolInterner,
 }
 
 impl<'ctx> Lowerer<'ctx> {
@@ -53,7 +70,7 @@ impl<'ctx> Lowerer<'ctx> {
 }
 
 impl<'ctx> Lowerer<'ctx> {
-    pub fn lower_module(&mut self, module: &ast::Module) -> LoweringResult<Module> {
+    fn lower_module(&mut self, module: &ast::Module) -> LoweringResult<Module> {
         self.resolver.enter_scope();
         let mut module_items = Vec::with_capacity(module.items.len());
 

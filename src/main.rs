@@ -21,7 +21,7 @@ use clap::{Parser, Subcommand};
 
 use crate::{
     ast::{lex::Lexer, parse::parse_module},
-    ir::lower::Lowerer,
+    ir::lower::lower_module,
     jit::JIT,
 };
 
@@ -84,16 +84,7 @@ fn run(opts: &RunOpts) {
         return;
     }
 
-    // TODO: Lowering should probably be hidden behind a function, as should the registry and
-    // resolver
-    let mut registry = ir::registry::Registry::with_basic_types();
-    let resolver = ir::resolve::Resolver::with_prelude(&mut symbols, &mut registry);
-    let mut lowerer = Lowerer {
-        resolver,
-        symbols: &mut symbols,
-        registry: &mut registry,
-    };
-    let module = match lowerer.lower_module(&module) {
+    let module = match lower_module(&module, &mut symbols) {
         Ok(module) => module,
         Err(err) => {
             let diag = crate::diagnostic::diagnostic_from_lowering_error(&err);
@@ -102,12 +93,12 @@ fn run(opts: &RunOpts) {
         }
     };
     if opts.dump_ir {
-        println!("{:?}", registry);
-        println!("{:?}", module);
+        println!("{:?}", module.registry);
+        println!("{:?}", module.ir);
     }
 
-    let mut jit = JIT::new(&symbols, &registry);
-    let code_ptr = jit.compile(&module);
+    let mut jit = JIT::new(&symbols, &module.registry);
+    let code_ptr = jit.compile(&module.ir);
 
     // SAFETY: Whee! Hopefully the JIT compiler actually did compile to an arg-less and
     // return-value-less procedure
