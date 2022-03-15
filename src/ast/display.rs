@@ -3,6 +3,12 @@ use core::fmt::{self, Write};
 use super::*;
 use crate::intern::SymbolInterner;
 
+impl Module {
+    pub fn display<'ctx>(&'ctx self, symbols: &'ctx SymbolInterner) -> impl fmt::Display + 'ctx {
+        SexprWrapper { node: self, symbols }
+    }
+}
+
 struct SexprWrapper<'ctx, T: Sexpr> {
     node: &'ctx T,
     symbols: &'ctx SymbolInterner,
@@ -17,12 +23,6 @@ impl<T: Sexpr> fmt::Display for SexprWrapper<'_, T> {
             symbols: self.symbols,
         };
         sexpr_writer.write(self.node).map_err(|_| fmt::Error)
-    }
-}
-
-impl Module {
-    pub fn display<'ctx>(&'ctx self, symbols: &'ctx SymbolInterner) -> impl fmt::Display + 'ctx {
-        SexprWrapper { node: self, symbols }
     }
 }
 

@@ -15,8 +15,6 @@ pub fn parse_module(code: &str, symbols: &mut SymbolInterner) -> (Module, Vec<Di
 
 struct Parser<'input> {
     code: &'input str,
-    // TODO: I need some way to avoid cascading errors. Not sure a good way to do that tho...
-    // erroring: bool,
     diagnostics: Vec<Diagnostic>,
     lexer: Lexer<'input>,
     symbols: &'input mut SymbolInterner,
@@ -255,13 +253,12 @@ impl<'input> Parser<'input> {
     }
 
     // TODO: I probably need ControlFlow again to prevent infinite loops with ExprKind::Errors. Or
-    // maybe just short circuit on ExprKind::Error
+    // maybe just short circuit on ExprKind::Error. Or probably return option
 
     // TODO: Allow comparison chaining a la Python
 
-    // This is a precedence climbing parser
-    // Built with the help of https://matklad.github.io/2020/04/13/simple-but-powerful-pratt-parsing.html
-    // Binding powers stolen from https://wren.io/syntax.html
+    // This is a precedence climbing parser built with the help of
+    // https://matklad.github.io/2020/04/13/simple-but-powerful-pratt-parsing.html
     fn expr_at_bp(&mut self, min_bp: Precedence) -> Expr {
         let tok = if let Some(tok) = self.lexer.peek() {
             tok
@@ -381,7 +378,8 @@ impl<'input> Parser<'input> {
 
                 TokenKind::Ampersand => Precedence::BitAnd,
                 TokenKind::Bar => Precedence::BitOr,
-                TokenKind::Caret | TokenKind::LtLt | TokenKind::GtGt => Precedence::BitAmbiguous,
+                TokenKind::Caret => Precedence::BitXor,
+                TokenKind::LtLt | TokenKind::GtGt => Precedence::BitShift,
 
                 TokenKind::LParen | TokenKind::LSquare | TokenKind::Dot => {
                     Precedence::AccessIndexOrCall
@@ -833,7 +831,8 @@ enum Precedence {
     AddSub,
     BitAnd,
     BitOr,
-    BitAmbiguous,
+    BitXor,
+    BitShift,
     CmpOrd,
     CmpEq,
     LNot,
@@ -843,6 +842,26 @@ enum Precedence {
     Param,
     Base,
 }
+
+#[cfg(test)]
+const PRECEDENCE_BINDING_POWERS: [Precedence; 16] = [
+    Precedence::AccessIndexOrCall,
+    Precedence::Unary,
+    Precedence::MulDiv,
+    Precedence::AddSub,
+    Precedence::BitAnd,
+    Precedence::BitOr,
+    Precedence::BitOr,
+    Precedence::BitShift,
+    Precedence::CmpOrd,
+    Precedence::CmpEq,
+    Precedence::LNot,
+    Precedence::LAnd,
+    Precedence::LOr,
+    Precedence::Set,
+    Precedence::Param,
+    Precedence::Base,
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Binding {
@@ -864,7 +883,8 @@ fn compare_precedence(lhs: Precedence, rhs: Precedence) -> Binding {
             | Precedence::AddSub
             | Precedence::BitAnd
             | Precedence::BitOr
-            | Precedence::BitAmbiguous
+            | Precedence::BitXor
+            | Precedence::BitShift
             | Precedence::CmpOrd
             | Precedence::CmpEq
             | Precedence::LNot
@@ -877,7 +897,9 @@ fn compare_precedence(lhs: Precedence, rhs: Precedence) -> Binding {
         Precedence::MulDiv => match rhs {
             Precedence::MulDiv => Binding::LeftHigher,
             Precedence::AccessIndexOrCall | Precedence::Unary => Binding::RightHigher,
-            Precedence::BitAnd | Precedence::BitOr | Precedence::BitAmbiguous => Binding::Ambiguous,
+            Precedence::BitAnd | Precedence::BitOr | Precedence::BitXor | Precedence::BitShift => {
+                Binding::Ambiguous
+            }
             Precedence::AddSub
             | Precedence::CmpOrd
             | Precedence::CmpEq
@@ -893,7 +915,9 @@ fn compare_precedence(lhs: Precedence, rhs: Precedence) -> Binding {
             Precedence::AccessIndexOrCall | Precedence::Unary | Precedence::MulDiv => {
                 Binding::RightHigher
             }
-            Precedence::BitAnd | Precedence::BitOr | Precedence::BitAmbiguous => Binding::Ambiguous,
+            Precedence::BitAnd | Precedence::BitOr | Precedence::BitXor | Precedence::BitShift => {
+                Binding::Ambiguous
+            }
             Precedence::CmpOrd
             | Precedence::CmpEq
             | Precedence::LNot
@@ -909,7 +933,8 @@ fn compare_precedence(lhs: Precedence, rhs: Precedence) -> Binding {
             Precedence::MulDiv
             | Precedence::AddSub
             | Precedence::BitOr
-            | Precedence::BitAmbiguous => Binding::Ambiguous,
+            | Precedence::BitXor
+            | Precedence::BitShift => Binding::Ambiguous,
             Precedence::CmpOrd
             | Precedence::CmpEq
             | Precedence::LNot
@@ -925,7 +950,8 @@ fn compare_precedence(lhs: Precedence, rhs: Precedence) -> Binding {
             Precedence::MulDiv
             | Precedence::AddSub
             | Precedence::BitAnd
-            | Precedence::BitAmbiguous => Binding::Ambiguous,
+            | Precedence::BitXor
+            | Precedence::BitShift => Binding::Ambiguous,
             Precedence::CmpOrd
             | Precedence::CmpEq
             | Precedence::LNot
@@ -935,12 +961,31 @@ fn compare_precedence(lhs: Precedence, rhs: Precedence) -> Binding {
             | Precedence::Param
             | Precedence::Base => Binding::LeftHigher,
         },
-        Precedence::BitAmbiguous => match rhs {
-            Precedence::BitAmbiguous => Binding::Ambiguous,
+        Precedence::BitXor => match rhs {
+            Precedence::BitXor => Binding::LeftHigher,
             Precedence::AccessIndexOrCall | Precedence::Unary => Binding::RightHigher,
-            Precedence::MulDiv | Precedence::AddSub | Precedence::BitAnd | Precedence::BitOr => {
-                Binding::Ambiguous
-            }
+            Precedence::MulDiv
+            | Precedence::AddSub
+            | Precedence::BitAnd
+            | Precedence::BitOr
+            | Precedence::BitShift => Binding::Ambiguous,
+            Precedence::CmpOrd
+            | Precedence::CmpEq
+            | Precedence::LNot
+            | Precedence::LAnd
+            | Precedence::LOr
+            | Precedence::Set
+            | Precedence::Param
+            | Precedence::Base => Binding::LeftHigher,
+        },
+        Precedence::BitShift => match rhs {
+            Precedence::BitShift => Binding::Ambiguous,
+            Precedence::AccessIndexOrCall | Precedence::Unary => Binding::RightHigher,
+            Precedence::MulDiv
+            | Precedence::AddSub
+            | Precedence::BitAnd
+            | Precedence::BitOr
+            | Precedence::BitXor => Binding::Ambiguous,
             Precedence::CmpOrd
             | Precedence::CmpEq
             | Precedence::LNot
@@ -958,7 +1003,8 @@ fn compare_precedence(lhs: Precedence, rhs: Precedence) -> Binding {
             | Precedence::AddSub
             | Precedence::BitAnd
             | Precedence::BitOr
-            | Precedence::BitAmbiguous => Binding::RightHigher,
+            | Precedence::BitXor
+            | Precedence::BitShift => Binding::RightHigher,
             Precedence::CmpEq
             | Precedence::LNot
             | Precedence::LAnd
@@ -975,7 +1021,8 @@ fn compare_precedence(lhs: Precedence, rhs: Precedence) -> Binding {
             | Precedence::AddSub
             | Precedence::BitAnd
             | Precedence::BitOr
-            | Precedence::BitAmbiguous
+            | Precedence::BitXor
+            | Precedence::BitShift
             | Precedence::CmpOrd => Binding::RightHigher,
             Precedence::LNot
             | Precedence::LAnd
@@ -992,7 +1039,8 @@ fn compare_precedence(lhs: Precedence, rhs: Precedence) -> Binding {
             | Precedence::AddSub
             | Precedence::BitAnd
             | Precedence::BitOr
-            | Precedence::BitAmbiguous
+            | Precedence::BitXor
+            | Precedence::BitShift
             | Precedence::CmpOrd
             | Precedence::CmpEq => Binding::RightHigher,
             Precedence::LAnd
@@ -1009,7 +1057,8 @@ fn compare_precedence(lhs: Precedence, rhs: Precedence) -> Binding {
             | Precedence::AddSub
             | Precedence::BitAnd
             | Precedence::BitOr
-            | Precedence::BitAmbiguous
+            | Precedence::BitXor
+            | Precedence::BitShift
             | Precedence::CmpOrd
             | Precedence::CmpEq
             | Precedence::LNot => Binding::RightHigher,
@@ -1024,7 +1073,8 @@ fn compare_precedence(lhs: Precedence, rhs: Precedence) -> Binding {
             | Precedence::AddSub
             | Precedence::BitAnd
             | Precedence::BitOr
-            | Precedence::BitAmbiguous
+            | Precedence::BitXor
+            | Precedence::BitShift
             | Precedence::CmpOrd
             | Precedence::CmpEq
             | Precedence::LNot => Binding::RightHigher,
@@ -1039,7 +1089,8 @@ fn compare_precedence(lhs: Precedence, rhs: Precedence) -> Binding {
             | Precedence::AddSub
             | Precedence::BitAnd
             | Precedence::BitOr
-            | Precedence::BitAmbiguous
+            | Precedence::BitXor
+            | Precedence::BitShift
             | Precedence::CmpOrd
             | Precedence::CmpEq
             | Precedence::LNot
@@ -1055,7 +1106,8 @@ fn compare_precedence(lhs: Precedence, rhs: Precedence) -> Binding {
             | Precedence::AddSub
             | Precedence::BitAnd
             | Precedence::BitOr
-            | Precedence::BitAmbiguous
+            | Precedence::BitXor
+            | Precedence::BitShift
             | Precedence::CmpOrd
             | Precedence::CmpEq
             | Precedence::LNot
@@ -1137,26 +1189,8 @@ mod tests {
 
     #[test]
     fn precedance_rules() {
-        use Precedence::*;
-        let binding_powers = [
-            AccessIndexOrCall,
-            Unary,
-            MulDiv,
-            AddSub,
-            BitAnd,
-            BitOr,
-            BitAmbiguous,
-            CmpOrd,
-            CmpEq,
-            LNot,
-            LAnd,
-            LOr,
-            Set,
-            Param,
-        ];
-
-        for &a in &binding_powers {
-            for &b in &binding_powers {
+        for a in PRECEDENCE_BINDING_POWERS {
+            for b in PRECEDENCE_BINDING_POWERS {
                 let ab = compare_precedence(a, b);
                 let ba = compare_precedence(b, a);
 
@@ -1172,7 +1206,7 @@ mod tests {
                 }
 
                 // Transitive
-                for &c in &binding_powers {
+                for c in PRECEDENCE_BINDING_POWERS {
                     let bc = compare_precedence(b, c);
                     let ac = compare_precedence(a, b);
 
@@ -1194,14 +1228,6 @@ mod tests {
                 }
             }
         }
-
-        let (expr, _) = run_parser("1 + 2 == 3 and true", |p| p.expr());
-        assert_eq!(expr.span, (0, 19));
-        let (left, _right) = expect_op(BinOp::Land, &expr);
-        assert_eq!(left.span, (0, 10));
-        let (left, _right) = expect_op(BinOp::Eq, &left);
-        assert_eq!(left.span, (0, 5));
-        expect_op(BinOp::Add, &left);
     }
 
     #[test]
