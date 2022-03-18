@@ -10,12 +10,11 @@ use crate::{
 pub fn parse_module(code: &str, symbols: &mut SymbolInterner) -> (Module, Vec<Diagnostic>) {
     let mut parser = Parser::new(code, symbols);
     let module = parser.module();
-    (module, parser.diagnostics)
+    (module, parser.diagnostic_sink.diagnostics)
 }
 
 struct Parser<'input> {
-    code: &'input str,
-    diagnostics: Vec<Diagnostic>,
+    diagnostic_sink: DiagnosticSink,
     lexer: Lexer<'input>,
     symbols: &'input mut SymbolInterner,
 }
@@ -23,8 +22,7 @@ struct Parser<'input> {
 impl<'input> Parser<'input> {
     fn new(code: &'input str, symbols: &'input mut SymbolInterner) -> Self {
         Self {
-            code,
-            diagnostics: Vec::new(),
+            diagnostic_sink: DiagnosticSink::new(code),
             lexer: Lexer::new(code),
             symbols,
         }
@@ -76,81 +74,89 @@ impl<'input> Parser<'input> {
             .with_message("unexpected end of file")
             .with_labels(vec![Label::primary(
                 (),
-                self.code.len() - 1..self.code.len(),
+                self.diagnostic_sink.eof_span.0..self.diagnostic_sink.eof_span.1,
             )])
     }
 
     fn unexpected(&mut self) {
         if let Some(tok) = self.lexer.peek() {
-            self.diagnostics.push(self.unexpected_token(tok))
+            self.diagnostic_sink.push(self.unexpected_token(tok))
         } else {
-            self.diagnostics.push(self.unexpected_eof())
+            self.diagnostic_sink.push(self.unexpected_eof())
         }
+        self.diagnostic_sink.quiet();
     }
 }
 
 impl<'input> Parser<'input> {
     fn module(&mut self) -> Module {
-        // TODO: Figure out a way to re-use delimited
         let mut items = Vec::new();
+        // TODO: Figure out a way to re-use delimited
+        let mut try_parse_item = |parser: &mut Self| match parser.item() {
+            Some(item) => items.push(item),
+            // Seek to next semicolon
+            None => loop {
+                match parser.lexer.peek() {
+                    None => break,
+                    Some(tok) if tok.kind == TokenKind::Semicolon => break,
+                    _ => parser.lexer.next(),
+                };
+            },
+        };
+
         if self.lexer.peek().is_some() {
-            items.push(self.item());
+            try_parse_item(self);
         }
         while self.maybe_token(TokenKind::Semicolon).is_some() {
             if self.lexer.peek().is_none() {
                 break;
             }
-            items.push(self.item());
+            try_parse_item(self);
         }
 
         if let Some(tok) = self.lexer.next() {
-            self.diagnostics.push(self.unexpected_token(tok));
+            self.diagnostic_sink.push(self.unexpected_token(tok));
         }
 
         Module { items }
     }
 
-    fn item(&mut self) -> Item {
+    fn item(&mut self) -> Option<Item> {
         let tok = if let Some(tok) = self.lexer.peek() {
             tok
         } else {
-            self.diagnostics.push(self.unexpected_eof());
-            return Item::Error;
+            self.diagnostic_sink.push(self.unexpected_eof());
+            return None;
         };
 
         match tok.kind {
-            TokenKind::Fn => self.fn_def(),
-            TokenKind::Import => self.import(),
+            TokenKind::Fn => {
+                self.diagnostic_sink.okay();
+                self.fn_def()
+            }
+            TokenKind::Import => {
+                self.diagnostic_sink.okay();
+                self.import()
+            }
             _ => {
-                // TODO: How do I want to handle these errors? Maybe try to parse a whole
-                // expression?
-
                 let message = if tok.kind == TokenKind::Let {
                     "unexpected variable declaration".to_owned()
                 } else {
                     format!("unexpected token {}", tok.kind)
                 };
-                // Try to prevent cascading errors
-                self.diagnostics.push(
+                self.diagnostic_sink.push(
                     Diagnostic::error()
                         .with_message(message)
                         .with_labels(vec![Label::primary((), tok.span.0..tok.span.1)
                             .with_message("expected one of `fn` or `import`")]),
                 );
-                // Seek to semicolon
-                loop {
-                    match self.lexer.peek() {
-                        None => break,
-                        Some(tok) if tok.kind == TokenKind::Semicolon => break,
-                        _ => self.lexer.next(),
-                    };
-                }
-                Item::Error
+                self.diagnostic_sink.quiet();
+                None
             }
         }
     }
 
-    fn fn_def(&mut self) -> Item {
+    fn fn_def(&mut self) -> Option<Item> {
         let fn_ = self
             .maybe_token(TokenKind::Fn)
             .expect("functions parsed predictively");
@@ -159,13 +165,15 @@ impl<'input> Parser<'input> {
             ident
         } else {
             self.unexpected();
-            return Item::Error;
+            return None;
         };
 
         if self.maybe_token(TokenKind::LParen).is_none() {
             self.unexpected();
-            return Item::Error;
+            return None;
         }
+
+        // TODO: Everywhere we return None we go up to the generic item recovery stuff
 
         // TODO: Try to make delimited work again
         let maybe_param = |parser: &mut Self| {
@@ -183,7 +191,7 @@ impl<'input> Parser<'input> {
                 params.push(param);
             } else {
                 self.unexpected();
-                return Item::Error;
+                return None;
             }
 
             // Remaining elements
@@ -195,14 +203,14 @@ impl<'input> Parser<'input> {
                 } else if !got_comma {
                     // We didn't get a comma, so we expect to finish, but didn't
                     self.unexpected();
-                    return Item::Error;
+                    return None;
                 } else {
                     // Expect another parameters
                     if let Some(param) = maybe_param(self) {
                         params.push(param);
                     } else {
                         self.unexpected();
-                        return Item::Error;
+                        return None;
                     }
                 }
             }
@@ -213,23 +221,23 @@ impl<'input> Parser<'input> {
                 Some(ident_path)
             } else {
                 self.unexpected();
-                return Item::Error;
+                return None;
             }
         } else {
             None
         };
 
         let (body, (_start, end)) = self.block();
-        Item::FnDef(FnDef {
+        Some(Item::FnDef(FnDef {
             name,
             params,
             return_typepath: return_type,
             body,
             span: (fn_.span.0, end),
-        })
+        }))
     }
 
-    fn import(&mut self) -> Item {
+    fn import(&mut self) -> Option<Item> {
         self.maybe_token(TokenKind::Import)
             .expect("import is parsed predictively");
 
@@ -237,15 +245,10 @@ impl<'input> Parser<'input> {
             path
         } else {
             self.unexpected();
-            return Item::Error;
+            return None;
         };
 
-        if self.maybe_token(TokenKind::Semicolon).is_none() {
-            self.unexpected();
-            return Item::Error;
-        }
-
-        Item::Import(path)
+        Some(Item::Import(path))
     }
 
     fn expr(&mut self) -> Expr {
@@ -253,7 +256,8 @@ impl<'input> Parser<'input> {
     }
 
     // TODO: I probably need ControlFlow again to prevent infinite loops with ExprKind::Errors. Or
-    // maybe just short circuit on ExprKind::Error. Or probably return option
+    // maybe just short circuit on ExprKind::Error. Or probably return Option since there's nothing
+    // to return on ControlFlow::Break
 
     // TODO: Allow comparison chaining a la Python
 
@@ -263,10 +267,10 @@ impl<'input> Parser<'input> {
         let tok = if let Some(tok) = self.lexer.peek() {
             tok
         } else {
-            self.diagnostics.push(self.unexpected_eof());
+            self.diagnostic_sink.push(self.unexpected_eof());
             return Expr {
                 kind: ExprKind::Error,
-                span: (self.code.len() - 1, self.code.len()),
+                span: self.diagnostic_sink.eof_span,
             };
         };
 
@@ -325,7 +329,7 @@ impl<'input> Parser<'input> {
             TokenKind::Let if min_bp == Precedence::Base => self.let_(),
 
             _ => {
-                self.unexpected();
+                self.diagnostic_sink.push(self.unexpected_token(tok));
                 Expr {
                     kind: ExprKind::Error,
                     span: tok.span,
@@ -402,7 +406,7 @@ impl<'input> Parser<'input> {
                 Binding::LeftHigher => break,
                 Binding::RightHigher => {}
                 Binding::Ambiguous => {
-                    self.diagnostics.push(
+                    self.diagnostic_sink.push(
                         Diagnostic::error()
                             .with_message("ambiguous operator precedence")
                             .with_labels(vec![Label::primary((), tok.span.0..tok.span.1)]),
@@ -645,10 +649,10 @@ impl<'input> Parser<'input> {
             let tok = if let Some(tok) = self.lexer.peek() {
                 tok
             } else {
-                self.diagnostics.push(self.unexpected_eof());
+                self.diagnostic_sink.push(self.unexpected_eof());
                 return Expr {
                     kind: ExprKind::Error,
-                    span: (self.code.len() - 1, self.code.len()),
+                    span: self.diagnostic_sink.eof_span,
                 };
             };
             if tok.kind == TokenKind::If {
@@ -746,7 +750,7 @@ impl<'input> Parser<'input> {
         let ident = if let ExprKind::Ident(ident) = lhs.kind {
             ident
         } else {
-            self.diagnostics.push(
+            self.diagnostic_sink.push(
                 Diagnostic::error()
                     .with_message("invalid assignment expression")
                     .with_labels(vec![Label::primary((), lhs.span.0..lhs.span.1)
@@ -1147,6 +1151,59 @@ fn parse_string(input: &str) -> String {
     input[1..input.len() - 1].replace("\\\"", "\"")
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum DiagnosticMode {
+    /// Accepting new diagnostics.
+    Okay,
+    /// Accepting no new diagnostics.
+    Quiet,
+    /// Accepting no new diagnostics and will not become okay.
+    ForceQuiet,
+}
+
+#[derive(Debug)]
+struct DiagnosticSink {
+    eof_span: Span,
+    diagnostics: Vec<Diagnostic>,
+    mode: DiagnosticMode,
+}
+
+impl DiagnosticSink {
+    fn new(code: &str) -> Self {
+        Self {
+            eof_span: (code.len().saturating_sub(1), code.len()),
+            diagnostics: Vec::new(),
+            mode: DiagnosticMode::Okay,
+        }
+    }
+
+    fn okay(&mut self) {
+        if self.mode == DiagnosticMode::Quiet {
+            self.mode = DiagnosticMode::Okay;
+        }
+    }
+
+    fn quiet(&mut self) {
+        if self.mode == DiagnosticMode::Okay {
+            self.mode = DiagnosticMode::Quiet;
+        }
+    }
+
+    fn force_okay(&mut self) {
+        self.mode = DiagnosticMode::Okay;
+    }
+
+    fn force_quiet(&mut self) {
+        self.mode = DiagnosticMode::ForceQuiet;
+    }
+
+    fn push(&mut self, diag: Diagnostic) {
+        if self.mode == DiagnosticMode::Okay {
+            self.diagnostics.push(diag);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::intern::Symbol;
@@ -1310,7 +1367,7 @@ fn the_answer(): UInt {
 }";
         let (got, mut sym) = run_parser(code, |p| p.item());
 
-        let want = Item::FnDef(FnDef {
+        let want = Ok(Item::FnDef(FnDef {
             name: Ident {
                 sym: sym("the_answer"),
                 span: (4, 14),
@@ -1325,7 +1382,7 @@ fn the_answer(): UInt {
                 span: (29, 31),
             }],
             span: (1, 33),
-        });
+        }));
         assert_eq!(got, want);
     }
 }

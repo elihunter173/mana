@@ -1,6 +1,11 @@
-// let foo = 123
-// print("Hello, World!")
+let foo = 123
+let a = {
+    print("UwU")
+    "farticus maximus"
+}
 
 fn main(): Int {
     ~0x1 & 0xF
 }
+
+print("Hello, World!")
