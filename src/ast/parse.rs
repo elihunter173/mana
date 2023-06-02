@@ -161,6 +161,7 @@ impl<'input> Parser<'input> {
             .maybe_token(TokenKind::Fn)
             .expect("functions parsed predictively");
 
+        // TODO: Look for lparen, or lbracket, or semicolon. Take behavior based off of that
         let name = if let Some(ident) = self.maybe_ident() {
             ident
         } else {
