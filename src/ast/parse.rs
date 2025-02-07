@@ -284,14 +284,12 @@ impl<'input> Parser<'input> {
         self.maybe_token(TokenKind::Import)
             .expect("import is parsed predictively");
 
-        let path = if let Some(path) = self.maybe_ident_path() {
-            path
-        } else {
+        let Some(_path) = self.maybe_ident_path() else {
             self.unexpected();
             return None;
         };
 
-        Some(Item::Import(path))
+        todo!("replace this with a def to a compiler-built-in @import()")
     }
 
     fn expr(&mut self) -> Expr {

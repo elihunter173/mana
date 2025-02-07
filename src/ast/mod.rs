@@ -30,7 +30,6 @@ pub struct Module {
 pub enum Item {
     Error,
     Def(Def),
-    Import(IdentPath),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

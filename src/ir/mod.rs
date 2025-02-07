@@ -16,8 +16,7 @@ pub struct Module {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Item {
-    Function(FunctionId),
-    // TODO: Add imports
+    Def(Expr),
 }
 
 /// A resolved type. `span` is where the typepath is

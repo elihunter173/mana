@@ -105,11 +105,6 @@ impl Sexpr for Item {
     fn write_into<W: Write>(&self, w: &mut SexprWriter<W>) -> fmt::Result {
         match self {
             Item::Def(def) => w.write(def),
-            Item::Import(ident_path) => w.list(|w| {
-                w.write_str("import")?;
-                w.write(ident_path)?;
-                Ok(())
-            }),
             Item::Error => w.write_str("ERROR"),
         }
     }

@@ -28,11 +28,10 @@ pub enum TyKind {
     Float(FloatTy),
     // structural row type
     Object(RowTy),
-    // nominal row type
-    Struct(UniqId, RowTy),
-    // linear nominal row type
-    Resource(UniqId, RowTy),
     // complex types
+    NewType(UniqId, Box<Type>),
+    // linear NewType
+    Resource(UniqId, Box<Type>),
     Fn(FnTy),
     Union(UnionTy),
 }

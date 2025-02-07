@@ -74,97 +74,36 @@ impl<'ctx> Lowerer<'ctx> {
         self.resolver.enter_scope();
         let mut module_items = Vec::with_capacity(module.items.len());
 
+        // TODO: Switch to lazy tree-shaking for consts. Make imports not an item
+
         // Declare all items
-        let mut func_ids = Vec::new();
+        let mut def_ids = Vec::new();
         for item in &module.items {
             match item {
                 ast::Item::Error => unreachable!(),
                 ast::Item::Def(fn_def) => {
-                    let func_id = self.lower_fn_def_declare(fn_def)?;
-                    func_ids.push(func_id);
-                    module_items.push(Item::Function(func_id))
+                    let id = self.registry.declare_def(fn_def.name);
+                    def_ids.push(id);
                 }
-                ast::Item::Import(_) => todo!("import statements"),
             }
         }
 
         // Define all items
-        let mut func_ids = func_ids.iter();
+        let mut def_ids = def_ids.into_iter();
         for item in &module.items {
             match item {
                 ast::Item::Error => unreachable!(),
-                ast::Item::Def(fn_def) => {
-                    self.lower_fn_def_define(*func_ids.next().unwrap(), fn_def)?;
+                ast::Item::Def(def) => {
+                    let def_id = def_ids.next().unwrap();
+                    let expr = self.lower_expr(&def.value)?;
+                    self.registry.define_def(def_id, expr);
                 }
-                ast::Item::Import(_) => todo!("import statements"),
             }
         }
 
         self.resolver.exit_scope();
 
         Ok(Module { items: module_items })
-    }
-
-    // Lowers and defines function in resolver
-    fn lower_fn_def_declare(&mut self, fn_def: &ast::Def) -> LoweringResult<FunctionId> {
-        let mut params = Vec::with_capacity(fn_def.params.len());
-        for (ident, typepath) in &fn_def.params {
-            let ty = self.resolve_typepath(typepath)?;
-            let var_id = self
-                .registry
-                .register_variable(Variable { ident: *ident, type_id: ty.id });
-            params.push(var_id);
-        }
-
-        let return_ty = if let Some(typepath) = &fn_def.return_typepath {
-            self.resolve_typepath(typepath)?
-        } else {
-            TypePath {
-                id: self.registry.unit(),
-                span: fn_def.name.span,
-            }
-        };
-
-        let func_id = self.registry.declare_function(FunctionSignature {
-            name: fn_def.name,
-            params,
-            return_ty,
-        });
-        self.resolver
-            .define_function(fn_def.name.sym, func_id)
-            .expect("TODO: handle errors");
-
-        Ok(func_id)
-    }
-
-    fn lower_fn_def_define(
-        &mut self,
-        func_id: FunctionId,
-        fn_def: &ast::Def,
-    ) -> LoweringResult<()> {
-        self.resolver.enter_scope();
-
-        let (sig, _) = self.registry.get_function(func_id);
-        for &var_id in &sig.params {
-            let sym = self.registry.get_variable(var_id).ident.sym;
-            self.resolver
-                .define_variable(sym, var_id)
-                .expect("TODO: handle errors better");
-        }
-
-        let mut body = Vec::with_capacity(fn_def.body.len());
-        for expr in &fn_def.body {
-            body.push(self.lower_expr(expr)?);
-        }
-
-        // TODO: Ensure that return type matches body
-        self.resolver.exit_scope();
-
-        let func_id = self
-            .registry
-            .define_function(func_id, FunctionBody { exprs: body });
-
-        Ok(func_id)
     }
 
     fn lower_expr(&mut self, expr: &ast::Expr) -> LoweringResult<Expr> {
