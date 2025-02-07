@@ -1,0 +1,26 @@
+# generics
+type Foo where $T: Iterator .{
+    foo $T
+    bar $T
+}
+
+# or maybe this, where lowercase => generic?
+type Foo where t: Iterator .{
+    foo: t,
+    bar: t,
+}
+
+# or maybe go-like where you declare types? eh i actually don't like
+type[T Iterator] Foo .{
+    foo: T,
+    bar: T,
+}
+
+# ideas of syntax for objects
+{ var, num: 0, string: "example" }
+.{ var, num: 0, string: "example" }
+@{ var, num: 0, string: "example" }
+(var, num: 0, string: "example")
+@(var, num: 0, string: "example")
+.(var, num: 0, string: "example")
+obj(var, num: 0, string: "example")
