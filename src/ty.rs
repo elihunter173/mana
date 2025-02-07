@@ -20,20 +20,22 @@ impl Type {
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum TyKind {
+    // primitives
+    Unit,
     Bool,
     Int(IntTy),
     UInt(UIntTy),
     Float(FloatTy),
-    // TODO: A String is really a struct...
-    String,
-    Tuple(Vec<Type>),
-    // Key must be unique
-    Struct(BTreeMap<String, Type>),
+    // structural row type
+    Object(RowTy),
+    // nominal row type
+    Struct(UniqId, RowTy),
+    // linear nominal row type
+    Resource(UniqId, RowTy),
+    // complex types
+    Fn(FnTy),
+    Union(UnionTy),
 }
-
-pub const DEFAULT_INT: IntTy = IntTy::I32;
-pub const DEFAULT_UINT: UIntTy = UIntTy::U32;
-// pub const DEFAULT_FLOAT: FloatTy = FloatTy::F64;
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum IntTy {
@@ -57,4 +59,24 @@ pub enum UIntTy {
 pub enum FloatTy {
     F32,
     F64,
+}
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub struct RowTy {
+    columns: BTreeMap<String, Type>,
+}
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+struct UniqId(u64);
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+struct FnTy {
+    param: Box<Type>,
+    rtn: Box<Type>,
+}
+
+// TODO: This is almost certainly a bad representation
+#[derive(Default, Debug, PartialEq, Eq, Hash)]
+struct UnionTy {
+    options: Vec<Type>,
 }

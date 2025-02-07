@@ -1,8 +1,8 @@
-fn main(): Int {
+def main = fn(): Int {
     looper(1, 0)
 }
 
-fn looper(n: Int, acc: Int): Int {
+def looper = fn(n: Int, acc: Int): Int {
     if n >= 1000 {
         acc
     } else if n % 3 == 0 or n % 5 == 0 {

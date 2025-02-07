@@ -1,6 +1,3 @@
-#![feature(map_try_insert)]
-#![feature(hash_set_entry)]
-#![feature(iter_intersperse)]
 // matches!() sometimes doesn't work with rust-analyzer, and I think the code is similarly
 // readable, so I just ignore matches!()
 #![allow(clippy::match_like_matches_macro)]
@@ -9,7 +6,6 @@ mod ast;
 mod diagnostic;
 mod intern;
 mod ir;
-mod jit;
 mod ty;
 // TODO: Re-enable salsa
 // mod queries;
@@ -22,7 +18,6 @@ use clap::{Parser, Subcommand};
 use crate::{
     ast::{lex::Lexer, parse::parse_module},
     ir::lower::lower_module,
-    jit::JIT,
 };
 
 #[derive(Parser)]
@@ -97,14 +92,14 @@ fn run(opts: &RunOpts) {
         println!("{:?}", module.ir);
     }
 
-    let mut jit = JIT::new(&symbols, &module.registry);
-    let code_ptr = jit.compile(&module.ir);
-
-    // SAFETY: Whee! Hopefully the JIT compiler actually did compile to an arg-less and
-    // return-value-less procedure
-    let code_fn = unsafe { std::mem::transmute::<_, fn() -> i32>(code_ptr) };
-    println!("Build finished. Running.");
-    println!("{}", code_fn());
+    // let mut jit = JIT::new(&symbols, &module.registry);
+    // let code_ptr = jit.compile(&module.ir);
+    //
+    // // SAFETY: Whee! Hopefully the JIT compiler actually did compile to an arg-less and
+    // // return-value-less procedure
+    // let code_fn = unsafe { std::mem::transmute::<_, fn() -> i32>(code_ptr) };
+    // println!("Build finished. Running.");
+    // println!("{}", code_fn());
 }
 
 /*

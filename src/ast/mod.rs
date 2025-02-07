@@ -7,13 +7,7 @@ use crate::intern::Symbol;
 // TODO: Should Span be moved?
 pub type Span = (usize, usize);
 
-// TODO: Make a HasSpan trait? Various things can calculate their own span
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Spanned<T> {
-    pub span: Span,
-    pub kind: T,
-}
+// TODO: Make a Span more generic? Various things can calculate their own span
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Ident {
@@ -35,20 +29,22 @@ pub struct Module {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Item {
     Error,
-    FnDef(FnDef),
+    Def(Def),
     Import(IdentPath),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FnDef {
-    pub name: Ident,
-    pub params: Vec<(Ident, IdentPath)>,
-    pub return_typepath: Option<IdentPath>,
-    pub body: Vec<Expr>,
+pub struct Def {
     pub span: Span,
+    pub name: Ident,
+    pub value: Expr,
 }
 
-pub type Expr = Spanned<ExprKind>;
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Expr {
+    pub span: Span,
+    pub kind: ExprKind,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExprKind {
@@ -84,6 +80,14 @@ pub enum LiteralKind {
     Int(u128),
     Float(Symbol),
     String(Symbol),
+    Fn(Fn),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Fn {
+    pub params: Vec<(Ident, IdentPath)>,
+    pub return_typepath: Option<IdentPath>,
+    pub body: Vec<Expr>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

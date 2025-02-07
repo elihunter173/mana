@@ -121,6 +121,7 @@ impl<'input> Parser<'input> {
         Module { items }
     }
 
+    // If we return none, then we signal to the parser to try to recover
     fn item(&mut self) -> Option<Item> {
         let tok = if let Some(tok) = self.lexer.peek() {
             tok
@@ -130,9 +131,9 @@ impl<'input> Parser<'input> {
         };
 
         match tok.kind {
-            TokenKind::Fn => {
+            TokenKind::Def => {
                 self.diagnostic_sink.okay();
-                self.fn_def()
+                self.def()
             }
             TokenKind::Import => {
                 self.diagnostic_sink.okay();
@@ -148,7 +149,7 @@ impl<'input> Parser<'input> {
                     Diagnostic::error()
                         .with_message(message)
                         .with_labels(vec![Label::primary((), tok.span.0..tok.span.1)
-                            .with_message("expected one of `fn` or `import`")]),
+                            .with_message("expected one of `def` or `import`")]),
                 );
                 self.diagnostic_sink.quiet();
                 None
@@ -156,27 +157,44 @@ impl<'input> Parser<'input> {
         }
     }
 
-    fn fn_def(&mut self) -> Option<Item> {
-        let fn_ = self
+    fn def(&mut self) -> Option<Item> {
+        let fn_tok = self
             .maybe_token(TokenKind::Fn)
-            .expect("functions parsed predictively");
+            .expect("defs parsed predictively");
 
-        // TODO: Look for lparen, or lbracket, or semicolon. Take behavior based off of that
-        let name = if let Some(ident) = self.maybe_ident() {
-            ident
-        } else {
+        let Some(name) = self.maybe_ident() else {
             self.unexpected();
             return None;
         };
 
-        if self.maybe_token(TokenKind::LParen).is_none() {
+        if self.maybe_token(TokenKind::Equals).is_none() {
             self.unexpected();
             return None;
         }
 
-        // TODO: Everywhere we return None we go up to the generic item recovery stuff
+        let expr = self.expr();
 
-        // TODO: Try to make delimited work again
+        Some(Item::Def(Def {
+            span: (fn_tok.span.0, expr.span.1),
+            name,
+            value: expr,
+        }))
+    }
+
+    fn fn_(&mut self) -> Expr {
+        let fn_tok = self
+            .maybe_token(TokenKind::Fn)
+            .expect("functions parsed predictively");
+
+        let Some(lparen) = self.maybe_token(TokenKind::LParen) else {
+            self.unexpected();
+            return Expr {
+                span: fn_tok.span,
+                kind: ExprKind::Error,
+            };
+        };
+
+        // TODO: Try to make a generic delimited function work cuz this kinda sucks
         let maybe_param = |parser: &mut Self| {
             let ident = parser.maybe_ident()?;
             parser.maybe_token(TokenKind::Colon)?;
@@ -184,7 +202,7 @@ impl<'input> Parser<'input> {
             Some((ident, typepath))
         };
         let mut params = Vec::new();
-        if let Some(tok) = self.maybe_token(TokenKind::RParen) {
+        let _rparen = if let Some(tok) = self.maybe_token(TokenKind::RParen) {
             tok
         } else {
             // Initial element
@@ -192,50 +210,74 @@ impl<'input> Parser<'input> {
                 params.push(param);
             } else {
                 self.unexpected();
-                return None;
+                return Expr {
+                    span: (fn_tok.span.0, lparen.span.1),
+                    kind: ExprKind::Error,
+                };
             }
 
             // Remaining elements
             loop {
-                let got_comma = self.maybe_token(TokenKind::Comma).is_some();
+                let comma = self.maybe_token(TokenKind::Comma);
                 if let Some(tok) = self.maybe_token(TokenKind::RParen) {
                     // We finished
                     break tok;
-                } else if !got_comma {
-                    // We didn't get a comma, so we expect to finish, but didn't
-                    self.unexpected();
-                    return None;
-                } else {
-                    // Expect another parameters
-                    if let Some(param) = maybe_param(self) {
-                        params.push(param);
-                    } else {
+                }
+
+                match comma {
+                    // We didn't get a comma, so we expect to have found an RParen above, but didn't
+                    None => {
                         self.unexpected();
-                        return None;
+                        return Expr {
+                            span: (
+                                fn_tok.span.0,
+                                params
+                                    .last()
+                                    .map(|(_, t)| t.span.1)
+                                    .unwrap_or(lparen.span.1),
+                            ),
+                            kind: ExprKind::Error,
+                        };
+                    }
+                    Some(comma) => {
+                        // Expect another parameter
+                        if let Some(param) = maybe_param(self) {
+                            params.push(param);
+                        } else {
+                            self.unexpected();
+                            return Expr {
+                                span: (fn_tok.span.0, comma.span.1),
+                                kind: ExprKind::Error,
+                            };
+                        }
                     }
                 }
             }
         };
 
-        let return_type = if self.maybe_token(TokenKind::Colon).is_some() {
+        let return_type = if let Some(colon) = self.maybe_token(TokenKind::Colon) {
             if let Some(ident_path) = self.maybe_ident_path() {
                 Some(ident_path)
             } else {
                 self.unexpected();
-                return None;
+                return Expr {
+                    span: (fn_tok.span.0, colon.span.1),
+                    kind: ExprKind::Error,
+                };
             }
         } else {
             None
         };
 
         let (body, (_start, end)) = self.block();
-        Some(Item::FnDef(FnDef {
-            name,
-            params,
-            return_typepath: return_type,
-            body,
-            span: (fn_.span.0, end),
-        }))
+        Expr {
+            span: (fn_tok.span.0, end),
+            kind: ExprKind::Literal(LiteralKind::Fn(Fn {
+                params,
+                return_typepath: return_type,
+                body,
+            })),
+        }
     }
 
     fn import(&mut self) -> Option<Item> {
@@ -280,7 +322,7 @@ impl<'input> Parser<'input> {
             TokenKind::Tilde => self.parse_unary(UnaryOp::Bnot, Precedence::Unary),
             TokenKind::Not => self.parse_unary(UnaryOp::Lnot, Precedence::LNot),
 
-            // TODO: I hate duplicating this. Try to merge literal in here
+            // TODO: I hate duplicating match statement. Try to merge literal in here
             TokenKind::Int
             | TokenKind::IntHex
             | TokenKind::IntOct
@@ -328,6 +370,7 @@ impl<'input> Parser<'input> {
 
             TokenKind::If if min_bp == Precedence::Base => self.if_chain(),
             TokenKind::Let if min_bp == Precedence::Base => self.let_(),
+            TokenKind::Fn if min_bp == Precedence::Base => self.fn_(),
 
             _ => {
                 self.diagnostic_sink.push(self.unexpected_token(tok));

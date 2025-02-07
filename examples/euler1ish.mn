@@ -1,4 +1,4 @@
-fn main(): Int {
+def main = fn(): Int {
     let acc = 0
     let n = 1
     while n < 1000 {

@@ -1,6 +1,6 @@
 #!/usr/bin/env mana run
 
-fn main(): Int {
+def main = fn(): Int {
     let a: Int = 1
     let b: Float = a
 }

@@ -72,12 +72,6 @@ trait Sexpr {
     fn write_into<W: Write>(&self, w: &mut SexprWriter<W>) -> fmt::Result;
 }
 
-impl<T: Sexpr> Sexpr for Spanned<T> {
-    fn write_into<W: Write>(&self, w: &mut SexprWriter<W>) -> fmt::Result {
-        w.write(&self.kind)
-    }
-}
-
 impl Sexpr for Ident {
     fn write_into<W: Write>(&self, w: &mut SexprWriter<W>) -> fmt::Result {
         w.write_str(w.symbols.resolve(&self.sym))
@@ -110,7 +104,7 @@ impl Sexpr for Module {
 impl Sexpr for Item {
     fn write_into<W: Write>(&self, w: &mut SexprWriter<W>) -> fmt::Result {
         match self {
-            Item::FnDef(fn_def) => w.write(fn_def),
+            Item::Def(def) => w.write(def),
             Item::Import(ident_path) => w.list(|w| {
                 w.write_str("import")?;
                 w.write(ident_path)?;
@@ -121,44 +115,20 @@ impl Sexpr for Item {
     }
 }
 
-impl Sexpr for FnDef {
+impl Sexpr for Def {
     fn write_into<W: Write>(&self, w: &mut SexprWriter<W>) -> fmt::Result {
         w.list(|w| {
-            w.write_str("fn")?;
+            w.write_str("def")?;
             w.write(&self.name)?;
-
-            w.list(|w| {
-                for (ident, typepath) in &self.params {
-                    w.list(|w| {
-                        w.write(ident)?;
-                        w.write(typepath)?;
-                        Ok(())
-                    })?;
-                }
-                Ok(())
-            })?;
-
-            if let Some(typepath) = &self.return_typepath {
-                w.write(typepath)?;
-            } else {
-                w.write_str("()")?;
-            }
-
-            w.list(|w| {
-                for expr in &self.body {
-                    w.write(expr)?;
-                }
-                Ok(())
-            })?;
-
+            w.write(&self.value)?;
             Ok(())
         })
     }
 }
 
-impl Sexpr for ExprKind {
+impl Sexpr for Expr {
     fn write_into<W: Write>(&self, w: &mut SexprWriter<W>) -> fmt::Result {
-        match self {
+        match &self.kind {
             ExprKind::Error => w.write_str("ERROR"),
 
             ExprKind::Ident(ident) => w.write(ident),
@@ -279,7 +249,42 @@ impl Sexpr for LiteralKind {
                 let s = format!("\"{}\"", w.symbols.resolve(sym));
                 w.write_str(&s)
             }
+            LiteralKind::Fn(fn_) => fn_.write_into(w),
         }
+    }
+}
+
+impl Sexpr for Fn {
+    fn write_into<W: Write>(&self, w: &mut SexprWriter<W>) -> fmt::Result {
+        w.list(|w| {
+            w.write_str("fn")?;
+
+            w.list(|w| {
+                for (ident, typepath) in &self.params {
+                    w.list(|w| {
+                        w.write(ident)?;
+                        w.write(typepath)?;
+                        Ok(())
+                    })?;
+                }
+                Ok(())
+            })?;
+
+            if let Some(typepath) = &self.return_typepath {
+                w.write(typepath)?;
+            } else {
+                w.write_str("()")?;
+            }
+
+            w.list(|w| {
+                for expr in &self.body {
+                    w.write(expr)?;
+                }
+                Ok(())
+            })?;
+
+            Ok(())
+        })
     }
 }
 

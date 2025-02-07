@@ -1,6 +1,6 @@
 use crate::{
     ir::{FunctionBody, FunctionSignature, Variable},
-    ty::{FloatTy, TyKind, Type, DEFAULT_INT, DEFAULT_UINT},
+    ty::Type,
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -12,21 +12,6 @@ pub struct FunctionId(usize);
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct VariableId(usize);
 
-const BASIC_TYPES: [Type; 6] = [
-    Type { kind: TyKind::Tuple(Vec::new()) },
-    Type { kind: TyKind::Bool },
-    Type { kind: TyKind::Int(DEFAULT_INT) },
-    Type { kind: TyKind::UInt(DEFAULT_UINT) },
-    Type { kind: TyKind::Float(FloatTy::F64) },
-    Type { kind: TyKind::String },
-];
-const UNIT_TYPE_ID: TypeId = TypeId(0);
-const BOOL_TYPE_ID: TypeId = TypeId(1);
-const INT_TYPE_ID: TypeId = TypeId(2);
-const UINT_TYPE_ID: TypeId = TypeId(3);
-const FLOAT_TYPE_ID: TypeId = TypeId(4);
-const STRING_TYPE_ID: TypeId = TypeId(5);
-
 #[derive(Debug)]
 pub struct Registry {
     types: Vec<Type>,
@@ -35,36 +20,12 @@ pub struct Registry {
 }
 
 impl Registry {
-    pub fn with_basic_types() -> Self {
+    pub fn new() -> Self {
         Self {
-            types: Vec::from(BASIC_TYPES),
+            types: Vec::new(),
             functions: Vec::new(),
             variables: Vec::new(),
         }
-    }
-
-    pub fn unit(&self) -> TypeId {
-        UNIT_TYPE_ID
-    }
-
-    pub fn bool(&self) -> TypeId {
-        BOOL_TYPE_ID
-    }
-
-    pub fn int(&self) -> TypeId {
-        INT_TYPE_ID
-    }
-
-    pub fn uint(&self) -> TypeId {
-        UINT_TYPE_ID
-    }
-
-    pub fn float(&self) -> TypeId {
-        FLOAT_TYPE_ID
-    }
-
-    pub fn string(&self) -> TypeId {
-        STRING_TYPE_ID
     }
 
     pub fn get_type(&self, id: TypeId) -> &Type {

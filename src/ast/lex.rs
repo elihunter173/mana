@@ -96,6 +96,8 @@ pub enum TokenKind {
     Tilde,
 
     // Keywords
+    #[token("def")]
+    Def,
     #[token("fn")]
     Fn,
     #[token("struct")]
@@ -222,6 +224,7 @@ impl fmt::Display for TokenKind {
             TokenKind::Not => "not",
             TokenKind::Tilde => "~",
 
+            TokenKind::Def => "def",
             TokenKind::Fn => "fn",
             TokenKind::Struct => "struct",
             TokenKind::Enum => "enum",

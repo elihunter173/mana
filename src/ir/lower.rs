@@ -35,7 +35,7 @@ pub fn lower_module(
     module: &ast::Module,
     symbols: &mut SymbolInterner,
 ) -> Result<LoweredModule, LoweringError> {
-    let mut registry = Registry::with_basic_types();
+    let mut registry = Registry::new();
     let resolver = Resolver::with_prelude(symbols, &mut registry);
     let mut lowerer = Lowerer { resolver, registry, symbols };
     let module = lowerer.lower_module(module)?;
@@ -79,7 +79,7 @@ impl<'ctx> Lowerer<'ctx> {
         for item in &module.items {
             match item {
                 ast::Item::Error => unreachable!(),
-                ast::Item::FnDef(fn_def) => {
+                ast::Item::Def(fn_def) => {
                     let func_id = self.lower_fn_def_declare(fn_def)?;
                     func_ids.push(func_id);
                     module_items.push(Item::Function(func_id))
@@ -93,7 +93,7 @@ impl<'ctx> Lowerer<'ctx> {
         for item in &module.items {
             match item {
                 ast::Item::Error => unreachable!(),
-                ast::Item::FnDef(fn_def) => {
+                ast::Item::Def(fn_def) => {
                     self.lower_fn_def_define(*func_ids.next().unwrap(), fn_def)?;
                 }
                 ast::Item::Import(_) => todo!("import statements"),
@@ -106,7 +106,7 @@ impl<'ctx> Lowerer<'ctx> {
     }
 
     // Lowers and defines function in resolver
-    fn lower_fn_def_declare(&mut self, fn_def: &ast::FnDef) -> LoweringResult<FunctionId> {
+    fn lower_fn_def_declare(&mut self, fn_def: &ast::Def) -> LoweringResult<FunctionId> {
         let mut params = Vec::with_capacity(fn_def.params.len());
         for (ident, typepath) in &fn_def.params {
             let ty = self.resolve_typepath(typepath)?;
@@ -140,7 +140,7 @@ impl<'ctx> Lowerer<'ctx> {
     fn lower_fn_def_define(
         &mut self,
         func_id: FunctionId,
-        fn_def: &ast::FnDef,
+        fn_def: &ast::Def,
     ) -> LoweringResult<()> {
         self.resolver.enter_scope();
 
