@@ -11,16 +11,8 @@ clap = { version = "3.0.0-rc.6", features = ["derive"] }
 # Error reporting
 codespan-reporting = "0.11.1"
 
-# Query-based parser
-salsa = "0.16"
-
 # Lexer
 logos = "0.12"
 
 # Interning
 lasso = "0.6.0"
-
-# Compilation
-cranelift = "0.81.1"
-cranelift-module = "0.81.1"
-cranelift-jit = "0.81.1"

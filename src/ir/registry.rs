@@ -1,7 +1,9 @@
+use std::collections::BTreeMap;
+
 use crate::{
     ast::Ident,
     ir::{Expr, Variable},
-    ty::Type,
+    ty::{FloatTy, IntTy, RowTy, TyKind, Type, UIntTy},
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -16,6 +18,21 @@ pub struct VariableId(usize);
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct DefId(usize);
 
+const PRIMITIVES: [Type; 5] = [
+    Type {
+        kind: TyKind::Object(RowTy { columns: BTreeMap::new() }),
+    },
+    Type { kind: TyKind::Bool },
+    Type { kind: TyKind::Int(IntTy::I32) },
+    Type { kind: TyKind::UInt(UIntTy::U32) },
+    Type { kind: TyKind::Float(FloatTy::F64) },
+];
+const UNIT_TYPE_ID: TypeId = TypeId(0);
+const BOOL_TYPE_ID: TypeId = TypeId(1);
+const INT_TYPE_ID: TypeId = TypeId(2);
+const UINT_TYPE_ID: TypeId = TypeId(3);
+const FLOAT_TYPE_ID: TypeId = TypeId(4);
+
 #[derive(Debug)]
 pub struct Registry {
     types: Vec<Type>,
@@ -24,12 +41,28 @@ pub struct Registry {
 }
 
 impl Registry {
-    pub fn new() -> Self {
+    pub fn with_primitives() -> Self {
         Self {
-            types: Vec::new(),
+            types: Vec::from(PRIMITIVES),
             variables: Vec::new(),
             defs: Vec::new(),
         }
+    }
+
+    pub fn unit(&self) -> TypeId {
+        UNIT_TYPE_ID
+    }
+    pub fn bool(&self) -> TypeId {
+        BOOL_TYPE_ID
+    }
+    pub fn int(&self) -> TypeId {
+        INT_TYPE_ID
+    }
+    pub fn uint(&self) -> TypeId {
+        UINT_TYPE_ID
+    }
+    pub fn float(&self) -> TypeId {
+        FLOAT_TYPE_ID
     }
 
     pub fn get_type(&self, id: TypeId) -> &Type {

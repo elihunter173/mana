@@ -5,27 +5,18 @@ use crate::{
     ty::{FloatTy, IntTy, TyKind, Type, UIntTy},
 };
 
-use super::registry::{FunctionId, Registry, TypeId, VariableId};
+use super::registry::{Registry, TypeId, VariableId};
 
 // TODO: Unify FunctionId and VariableIds
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum ObjectId {
     Type(TypeId),
-    Function(FunctionId),
     Variable(VariableId),
 }
 
 impl ObjectId {
     pub fn as_type_id(self) -> Option<TypeId> {
         if let Self::Type(id) = self {
-            Some(id)
-        } else {
-            None
-        }
-    }
-
-    pub fn as_function_id(self) -> Option<FunctionId> {
-        if let Self::Function(id) = self {
             Some(id)
         } else {
             None
@@ -59,25 +50,32 @@ impl Resolver {
         let mut sym = |s: &str| interner.get_or_intern(s);
 
         let mut prelude = HashMap::new();
-        // Non-basic types still in prelude
+
+        // primitives
+        for (sym, ty_id) in [
+            (sym("Bool"), registry.bool()),
+            (sym("Int"), registry.int()),
+            (sym("UInt"), registry.uint()),
+            (sym("Float"), registry.float()),
+        ] {
+            prelude.insert(sym, ObjectId::Type(ty_id));
+        }
+
+        // prelude
         for (sym, ty_kind) in [
-            (sym("Bool"), TyKind::Bool),
             // signed int
-            (sym("Int"), TyKind::Int(IntTy::I32)),
             (sym("Int8"), TyKind::Int(IntTy::I8)),
             (sym("Int16"), TyKind::Int(IntTy::I16)),
             (sym("Int32"), TyKind::Int(IntTy::I32)),
             (sym("Int64"), TyKind::Int(IntTy::I64)),
             (sym("ISize"), TyKind::Int(IntTy::ISize)),
             // unsigned int
-            (sym("UInt"), TyKind::UInt(UIntTy::U32)),
             (sym("UInt8"), TyKind::UInt(UIntTy::U8)),
             (sym("UInt16"), TyKind::UInt(UIntTy::U16)),
             (sym("UInt32"), TyKind::UInt(UIntTy::U32)),
             (sym("UInt64"), TyKind::UInt(UIntTy::U64)),
             (sym("USize"), TyKind::UInt(UIntTy::USize)),
             // floats
-            (sym("Float"), TyKind::Float(FloatTy::F64)),
             (sym("Float32"), TyKind::Float(FloatTy::F32)),
             (sym("Float64"), TyKind::Float(FloatTy::F64)),
         ] {
@@ -120,10 +118,6 @@ impl Resolver {
 
     pub fn define_type(&mut self, sym: Symbol, id: TypeId) -> Result<(), ResolverError> {
         self.define(sym, ObjectId::Type(id))
-    }
-
-    pub fn define_function(&mut self, sym: Symbol, id: FunctionId) -> Result<(), ResolverError> {
-        self.define(sym, ObjectId::Function(id))
     }
 
     pub fn define_variable(&mut self, sym: Symbol, id: VariableId) -> Result<(), ResolverError> {

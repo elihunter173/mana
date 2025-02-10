@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 
+use crate::ir::registry::TypeId;
+
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Type {
     pub kind: TyKind,
@@ -29,9 +31,9 @@ pub enum TyKind {
     // structural row type
     Object(RowTy),
     // complex types
-    NewType(UniqId, Box<Type>),
+    NewType(UniqId, TypeId),
     // linear NewType
-    Resource(UniqId, Box<Type>),
+    Resource(UniqId, TypeId),
     Fn(FnTy),
     Union(UnionTy),
 }
@@ -62,20 +64,19 @@ pub enum FloatTy {
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct RowTy {
-    columns: BTreeMap<String, Type>,
+    pub columns: BTreeMap<String, TypeId>,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 struct UniqId(u64);
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-struct FnTy {
-    param: Box<Type>,
-    rtn: Box<Type>,
+pub struct FnTy {
+    pub params: Vec<TypeId>,
+    pub rtn: TypeId,
 }
 
-// TODO: This is almost certainly a bad representation
 #[derive(Default, Debug, PartialEq, Eq, Hash)]
-struct UnionTy {
-    options: Vec<Type>,
+pub struct UnionTy {
+    options: Vec<TypeId>,
 }

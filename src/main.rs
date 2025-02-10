@@ -7,8 +7,6 @@ mod diagnostic;
 mod intern;
 mod ir;
 mod ty;
-// TODO: Re-enable salsa
-// mod queries;
 
 use std::fs;
 
@@ -74,7 +72,7 @@ fn run(opts: &RunOpts) {
     }
     if !diagnostics.is_empty() {
         for diag in &diagnostics {
-            crate::diagnostic::emit(&diagnostic_file, &diag);
+            diagnostic::emit(&diagnostic_file, diag);
         }
         return;
     }
@@ -82,8 +80,8 @@ fn run(opts: &RunOpts) {
     let module = match lower_module(&module, &mut symbols) {
         Ok(module) => module,
         Err(err) => {
-            let diag = crate::diagnostic::diagnostic_from_lowering_error(&err);
-            crate::diagnostic::emit(&diagnostic_file, &diag);
+            let diag = diagnostic::diagnostic_from_lowering_error(&err);
+            diagnostic::emit(&diagnostic_file, &diag);
             return;
         }
     };

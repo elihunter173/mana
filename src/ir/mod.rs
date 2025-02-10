@@ -2,12 +2,14 @@ pub mod lower;
 pub mod registry;
 pub mod resolve;
 
+use registry::DefId;
+
 use crate::{
     ast::{Ident, Span},
     intern::{Symbol, SymbolInterner},
 };
 
-use self::registry::{FunctionId, TypeId, VariableId};
+use self::registry::{TypeId, VariableId};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Module {
@@ -16,7 +18,7 @@ pub struct Module {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Item {
-    Def(Expr),
+    Def(DefId),
 }
 
 /// A resolved type. `span` is where the typepath is
@@ -63,7 +65,7 @@ pub enum ExprKind {
     Return(Option<Box<Expr>>),
 
     // TODO: Add dot expressions... Need to figure it out in parser
-    FnCall(FunctionId, Vec<Expr>),
+    FnCall(VariableId, Vec<Expr>),
     Block(Block),
     If {
         cond: Box<Expr>,
@@ -94,6 +96,14 @@ pub enum LiteralKind {
     Int(u128),
     Float(Symbol),
     String(Symbol),
+    Fn(Fn),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Fn {
+    pub params: Vec<VariableId>,
+    pub return_typepath: TypePath,
+    pub body: Vec<Expr>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

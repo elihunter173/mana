@@ -157,7 +157,7 @@ impl Sexpr for Expr {
                 if let Some(typepath) = typepath {
                     w.write(typepath)?;
                 } else {
-                    w.write_str("INFER_TYPE")?;
+                    w.write_str("@infer")?;
                 }
                 w.write(expr.as_ref())?;
                 Ok(())

@@ -1,6 +1,7 @@
 use crate::{
     ast::{self, IdentPath, Span},
     ir::resolve::ResolverError,
+    ty::{FnTy, TyKind, Type},
 };
 
 use super::{
@@ -35,8 +36,9 @@ pub fn lower_module(
     module: &ast::Module,
     symbols: &mut SymbolInterner,
 ) -> Result<LoweredModule, LoweringError> {
-    let mut registry = Registry::new();
+    let mut registry = Registry::with_primitives();
     let resolver = Resolver::with_prelude(symbols, &mut registry);
+
     let mut lowerer = Lowerer { resolver, registry, symbols };
     let module = lowerer.lower_module(module)?;
     Ok(LoweredModule {
@@ -84,6 +86,7 @@ impl<'ctx> Lowerer<'ctx> {
                 ast::Item::Def(fn_def) => {
                     let id = self.registry.declare_def(fn_def.name);
                     def_ids.push(id);
+                    module_items.push(Item::Def(id));
                 }
             }
         }
@@ -462,32 +465,85 @@ impl<'ctx> Lowerer<'ctx> {
             kind: LoweringErrorKind::UnknownVariable(*ident),
             span: ident.span,
         })?;
-        let func_id = id
-            .as_function_id()
+        let id = id
+            .as_variable_id()
             .expect("must be function. TODO: rework entire diagnostics");
-        // TODO: Ensure function call matches signature
         let mut lowered_args = Vec::with_capacity(args.len());
         for expr in args {
             lowered_args.push(self.lower_expr(expr)?);
         }
 
-        let (sig, _) = self.registry.get_function(func_id);
+        let var = self.registry.get_variable(id);
+        let TyKind::Fn(fn_) = &self.registry.get_type(var.type_id).kind else {
+            return Err(LoweringError {
+                kind: LoweringErrorKind::InvalidType(var.type_id),
+                span,
+            });
+        };
 
         Ok(Expr {
             span,
-            ty: sig.return_ty.id,
-            kind: ExprKind::FnCall(func_id, lowered_args),
+            ty: fn_.rtn,
+            kind: ExprKind::FnCall(id, lowered_args),
         })
     }
 
-    fn lower_literal(&self, lit: &ast::LiteralKind) -> LoweringResult<Literal> {
-        let (kind, ty) = match *lit {
-            ast::LiteralKind::Bool(val) => (LiteralKind::Bool(val), self.registry.bool()),
-            ast::LiteralKind::Int(val) => (LiteralKind::Int(val), self.registry.int()),
-            ast::LiteralKind::Float(val) => (LiteralKind::Float(val), self.registry.float()),
-            ast::LiteralKind::String(val) => (LiteralKind::String(val), self.registry.string()),
+    fn lower_literal(&mut self, lit: &ast::LiteralKind) -> LoweringResult<Literal> {
+        let (kind, ty) = match lit {
+            ast::LiteralKind::Bool(val) => (LiteralKind::Bool(*val), self.registry.bool()),
+            ast::LiteralKind::Int(val) => (LiteralKind::Int(*val), self.registry.int()),
+            ast::LiteralKind::Float(val) => (LiteralKind::Float(*val), self.registry.float()),
+            ast::LiteralKind::String(_) => todo!(),
+            ast::LiteralKind::Fn(val) => {
+                let fn_ = self.lower_fn(val)?;
+                let params_ty_ids = fn_
+                    .params
+                    .iter()
+                    .copied()
+                    .map(|vid| self.registry.get_variable(vid).type_id)
+                    .collect();
+                let ty = Type {
+                    kind: TyKind::Fn(FnTy {
+                        params: params_ty_ids,
+                        rtn: fn_.return_typepath.id,
+                    }),
+                };
+                let fn_ty_id = self.registry.register_type(ty);
+                (LiteralKind::Fn(fn_), fn_ty_id)
+            }
         };
         Ok(Literal { kind, ty })
+    }
+
+    fn lower_fn(&mut self, fn_: &ast::Fn) -> LoweringResult<Fn> {
+        self.resolver.enter_scope();
+
+        let mut params = Vec::with_capacity(fn_.params.len());
+        for (ident, typepath) in &fn_.params {
+            let ty = self.resolve_typepath(typepath)?;
+            let var_id = self
+                .registry
+                .register_variable(Variable { ident: *ident, type_id: ty.id });
+            params.push(var_id);
+        }
+
+        let mut body = Vec::with_capacity(fn_.body.len());
+        for expr in &fn_.body {
+            body.push(self.lower_expr(expr)?);
+        }
+        let return_typepath = if let Some(typepath) = &fn_.return_typepath {
+            self.resolve_typepath(typepath)?
+        } else {
+            TypePath {
+                id: self.registry.unit(),
+                // TODO: We can't get this right now
+                span: (0, 0),
+            }
+        };
+
+        self.resolver.exit_scope();
+
+        Ok(Fn { params, return_typepath, body })
     }
 
     fn lower_block(&mut self, block: &Vec<ast::Expr>) -> LoweringResult<(TypeId, Vec<Expr>)> {

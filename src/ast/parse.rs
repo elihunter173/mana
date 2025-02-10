@@ -159,7 +159,7 @@ impl<'input> Parser<'input> {
 
     fn def(&mut self) -> Option<Item> {
         let fn_tok = self
-            .maybe_token(TokenKind::Fn)
+            .maybe_token(TokenKind::Def)
             .expect("defs parsed predictively");
 
         let Some(name) = self.maybe_ident() else {
