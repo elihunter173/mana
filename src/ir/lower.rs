@@ -527,12 +527,16 @@ impl<'ctx> Lowerer<'ctx> {
             params.push(var_id);
         }
 
-        let mut body = Vec::with_capacity(fn_.body.len());
-        for expr in &fn_.body {
-            body.push(self.lower_expr(expr)?);
-        }
+        let (body_ty, body) = self.lower_block(&fn_.body)?;
         let return_typepath = if let Some(typepath) = &fn_.return_typepath {
-            self.resolve_typepath(typepath)?
+            let typepath = self.resolve_typepath(typepath)?;
+            if typepath.id != body_ty {
+                return Err(LoweringError {
+                    kind: LoweringErrorKind::TypeConflict { want: typepath.id, got: body_ty },
+                    span: body.last().map(|e| e.span).unwrap(),
+                });
+            }
+            typepath
         } else {
             TypePath {
                 id: self.registry.unit(),
@@ -546,7 +550,7 @@ impl<'ctx> Lowerer<'ctx> {
         Ok(Fn { params, return_typepath, body })
     }
 
-    fn lower_block(&mut self, block: &Vec<ast::Expr>) -> LoweringResult<(TypeId, Vec<Expr>)> {
+    fn lower_block(&mut self, block: &[ast::Expr]) -> LoweringResult<(TypeId, Vec<Expr>)> {
         self.resolver.enter_scope();
         let mut ty = self.registry.unit();
         let mut exprs = Vec::with_capacity(block.len());

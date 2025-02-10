@@ -4,6 +4,7 @@
 
 mod ast;
 mod diagnostic;
+mod eval;
 mod intern;
 mod ir;
 mod ty;

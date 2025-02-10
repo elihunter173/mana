@@ -95,7 +95,6 @@ pub enum LiteralKind {
     Bool(bool),
     Int(u128),
     Float(Symbol),
-    String(Symbol),
     Fn(Fn),
 }
 
