@@ -1,6 +1,9 @@
 use crate::{
     intern::SymbolInterner,
-    ir::{self, registry::Registry},
+    ir::{
+        self,
+        registry::{Registry, VariableId},
+    },
 };
 
 pub struct Machine<'ctx> {
@@ -33,7 +36,7 @@ impl Machine<'_> {
         self.eval(main)
     }
 
-    pub fn eval(&mut self, expr: &ir::Expr) {
+    pub fn eval(&mut self, expr: &ir::Expr) -> ManaValue {
         match &expr.kind {
             ir::ExprKind::Variable(variable_id) => todo!(),
             ir::ExprKind::Literal(literal) => todo!(),
@@ -47,7 +50,22 @@ impl Machine<'_> {
             ir::ExprKind::Return(expr) => todo!(),
             ir::ExprKind::FnCall(variable_id, exprs) => todo!(),
             ir::ExprKind::Block(exprs) => todo!(),
-            ir::ExprKind::If { cond, then_expr, else_expr } => todo!(),
+            ir::ExprKind::If { cond, then_expr, else_expr } => match self.eval(cond) {
+                ManaValue::Bool(true) => self.eval(&then_expr),
+                ManaValue::Bool(false) => {
+                    if let Some(else_expr) = else_expr {
+                        self.eval(&else_expr)
+                    } else {
+                        ManaValue::Unit
+                    }
+                }
+                _ => panic!("type error"),
+            },
         }
     }
+}
+
+enum ManaValue {
+    Unit,
+    Bool(bool),
 }

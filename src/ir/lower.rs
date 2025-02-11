@@ -1,12 +1,11 @@
 use crate::{
     ast::{self, IdentPath, Span},
-    ir::resolve::ResolverError,
-    ty::{FnTy, TyKind, Type},
+    resolve::{Resolver, ResolverError},
+    ty::{FloatTy, FnTy, IntTy, TyKind, Type, UIntTy},
 };
 
 use super::{
     registry::{Registry, TypeId},
-    resolve::Resolver,
     *,
 };
 
@@ -37,7 +36,7 @@ pub fn lower_module(
     symbols: &mut SymbolInterner,
 ) -> Result<LoweredModule, LoweringError> {
     let mut registry = Registry::with_primitives();
-    let resolver = Resolver::with_prelude(symbols, &mut registry);
+    let resolver = resolver_with_prelude(symbols, &mut registry);
 
     let mut lowerer = Lowerer { resolver, registry, symbols };
     let module = lowerer.lower_module(module)?;
@@ -47,17 +46,86 @@ pub fn lower_module(
     })
 }
 
+/// Initialize a Resolver with a Prelude
+fn resolver_with_prelude(
+    interner: &mut SymbolInterner,
+    registry: &mut Registry,
+) -> Resolver<ObjectId> {
+    let mut sym = |s: &str| interner.get_or_intern(s);
+
+    let mut resolver = Resolver::new();
+
+    // primitives
+    for (sym, ty_id) in [
+        (sym("Bool"), registry.bool()),
+        (sym("Int"), registry.int()),
+        (sym("UInt"), registry.uint()),
+        (sym("Float"), registry.float()),
+    ] {
+        resolver.define(sym, ObjectId::Type(ty_id));
+    }
+
+    // prelude
+    for (sym, ty_kind) in [
+        // signed int
+        (sym("Int8"), TyKind::Int(IntTy::I8)),
+        (sym("Int16"), TyKind::Int(IntTy::I16)),
+        (sym("Int32"), TyKind::Int(IntTy::I32)),
+        (sym("Int64"), TyKind::Int(IntTy::I64)),
+        (sym("ISize"), TyKind::Int(IntTy::ISize)),
+        // unsigned int
+        (sym("UInt8"), TyKind::UInt(UIntTy::U8)),
+        (sym("UInt16"), TyKind::UInt(UIntTy::U16)),
+        (sym("UInt32"), TyKind::UInt(UIntTy::U32)),
+        (sym("UInt64"), TyKind::UInt(UIntTy::U64)),
+        (sym("USize"), TyKind::UInt(UIntTy::USize)),
+        // floats
+        (sym("Float32"), TyKind::Float(FloatTy::F32)),
+        (sym("Float64"), TyKind::Float(FloatTy::F64)),
+    ] {
+        let type_id = registry.register_type(Type { kind: ty_kind });
+        resolver.define(sym, ObjectId::Type(type_id));
+    }
+
+    resolver
+}
+
 struct Lowerer<'ctx> {
-    resolver: Resolver,
+    resolver: Resolver<ObjectId>,
     registry: Registry,
     symbols: &'ctx SymbolInterner,
+}
+
+// TODO: Unify FunctionId and VariableIds
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum ObjectId {
+    Type(TypeId),
+    Variable(VariableId),
+}
+
+impl ObjectId {
+    pub fn as_type_id(self) -> Option<TypeId> {
+        if let Self::Type(id) = self {
+            Some(id)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_variable_id(self) -> Option<VariableId> {
+        if let Self::Variable(id) = self {
+            Some(id)
+        } else {
+            None
+        }
+    }
 }
 
 impl<'ctx> Lowerer<'ctx> {
     fn resolve_typepath(&self, typepath: &IdentPath) -> LoweringResult<TypePath> {
         // TODO: This is a hack
         let sym = typepath.path[0].sym;
-        let obj = self.resolver.resolve(&sym).ok_or(LoweringError {
+        let obj = self.resolver.resolve(sym).ok_or(LoweringError {
             kind: LoweringErrorKind::UnknownType("TODO".to_owned()),
             span: typepath.span,
         })?;
@@ -117,7 +185,7 @@ impl<'ctx> Lowerer<'ctx> {
             ast::ExprKind::Ident(ident) => {
                 let obj_id = self
                     .resolver
-                    .resolve(&ident.sym)
+                    .resolve(ident.sym)
                     .expect("undefined variable. TODO: Better error message");
                 let var_id = obj_id.as_variable_id().expect("this isn't a variable");
                 Ok(Expr {
@@ -363,7 +431,7 @@ impl<'ctx> Lowerer<'ctx> {
             .registry
             .register_variable(Variable { type_id: expr.ty, ident: *ident });
         self.resolver
-            .define_variable(ident.sym, var_id)
+            .define(ident.sym, ObjectId::Variable(var_id))
             .map_err(|err| match err {
                 ResolverError::DuplicateItem => LoweringError {
                     kind: LoweringErrorKind::DuplicateItem,
@@ -386,7 +454,7 @@ impl<'ctx> Lowerer<'ctx> {
     ) -> LoweringResult<Expr> {
         let expr = self.lower_expr(expr)?;
 
-        let var_id = self.resolver.resolve(&ident.sym).ok_or(LoweringError {
+        let var_id = self.resolver.resolve(ident.sym).ok_or(LoweringError {
             kind: LoweringErrorKind::UnknownVariable(*ident),
             span: ident.span,
         })?;
@@ -461,7 +529,7 @@ impl<'ctx> Lowerer<'ctx> {
         ident: &ast::Ident,
         args: &[ast::Expr],
     ) -> LoweringResult<Expr> {
-        let id = self.resolver.resolve(&ident.sym).ok_or(LoweringError {
+        let id = self.resolver.resolve(ident.sym).ok_or(LoweringError {
             kind: LoweringErrorKind::UnknownVariable(*ident),
             span: ident.span,
         })?;

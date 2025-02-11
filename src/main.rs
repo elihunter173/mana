@@ -7,6 +7,7 @@ mod diagnostic;
 mod eval;
 mod intern;
 mod ir;
+mod resolve;
 mod ty;
 
 use std::fs;

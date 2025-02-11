@@ -1,6 +1,5 @@
 pub mod lower;
 pub mod registry;
-pub mod resolve;
 
 use registry::DefId;
 
