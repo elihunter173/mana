@@ -672,7 +672,13 @@ impl<'input> Parser<'input> {
     }
 
     fn continue_(&mut self) -> Expr {
-        self.keyword_expr(TokenKind::Continue, ExprKind::Continue)
+        let keyword = self
+            .maybe_token(TokenKind::Continue)
+            .expect("continue parsed predictively");
+        Expr {
+            kind: ExprKind::Continue,
+            span: keyword.span,
+        }
     }
 
     fn return_(&mut self) -> Expr {

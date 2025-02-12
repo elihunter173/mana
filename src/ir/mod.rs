@@ -44,7 +44,7 @@ pub struct FunctionBody {
 pub struct Expr {
     pub span: Span,
     pub kind: ExprKind,
-    pub ty: TypeId,
+    pub type_id: TypeId,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -60,11 +60,14 @@ pub enum ExprKind {
     Loop(Box<Expr>),
     // TODO: Keep track of destination when I add labeled breaks
     Break(Option<Box<Expr>>),
-    Continue(Option<Box<Expr>>),
+    Continue,
     Return(Option<Box<Expr>>),
 
     // TODO: Add dot expressions... Need to figure it out in parser
-    FnCall(VariableId, Vec<Expr>),
+    FnCall {
+        callee: Box<Expr>,
+        args: Vec<Expr>,
+    },
     Block(Block),
     If {
         cond: Box<Expr>,
@@ -104,7 +107,7 @@ pub struct Fn {
     pub body: Vec<Expr>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum BinOp {
     Add,
     Sub,
@@ -127,7 +130,7 @@ pub enum BinOp {
     Geq,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum UnaryOp {
     Neg,
     Lnot,

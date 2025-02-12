@@ -61,7 +61,7 @@ pub enum ExprKind {
 
     Loop(Box<Expr>),
     Break(Option<Box<Expr>>),
-    Continue(Option<Box<Expr>>),
+    Continue,
     Return(Option<Box<Expr>>),
 
     FnCall(Ident, Vec<Expr>),

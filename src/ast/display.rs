@@ -182,15 +182,7 @@ impl Sexpr for Expr {
                 }
                 Ok(())
             }),
-            ExprKind::Continue(expr) => w.list(|w| {
-                w.write_str("continue")?;
-                if let Some(expr) = expr {
-                    w.write(expr.as_ref())?;
-                } else {
-                    w.write_str("()")?;
-                }
-                Ok(())
-            }),
+            ExprKind::Continue => w.write_str("continue"),
             ExprKind::Return(expr) => w.list(|w| {
                 w.write_str("return")?;
                 if let Some(expr) = expr {

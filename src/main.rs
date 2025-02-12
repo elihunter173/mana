@@ -13,6 +13,7 @@ mod ty;
 use std::fs;
 
 use clap::{Parser, Subcommand};
+use eval::Machine;
 // use rustyline::{error::ReadlineError, Editor};
 
 use crate::{
@@ -91,6 +92,9 @@ fn run(opts: &RunOpts) {
         println!("{:?}", module.registry);
         println!("{:?}", module.ir);
     }
+
+    let mut vm = Machine::new(module.ir, &symbols, &module.registry);
+    vm.start();
 
     // let mut jit = JIT::new(&symbols, &module.registry);
     // let code_ptr = jit.compile(&module.ir);

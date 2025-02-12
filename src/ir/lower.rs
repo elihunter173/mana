@@ -62,7 +62,9 @@ fn resolver_with_prelude(
         (sym("UInt"), registry.uint()),
         (sym("Float"), registry.float()),
     ] {
-        resolver.define(sym, ObjectId::Type(ty_id));
+        resolver
+            .define(sym, ObjectId::Type(ty_id))
+            .expect("no duplicate primitives");
     }
 
     // prelude
@@ -84,7 +86,9 @@ fn resolver_with_prelude(
         (sym("Float64"), TyKind::Float(FloatTy::F64)),
     ] {
         let type_id = registry.register_type(Type { kind: ty_kind });
-        resolver.define(sym, ObjectId::Type(type_id));
+        resolver
+            .define(sym, ObjectId::Type(type_id))
+            .expect("no duplicates in prelude");
     }
 
     resolver
@@ -182,24 +186,13 @@ impl<'ctx> Lowerer<'ctx> {
         match &expr.kind {
             ast::ExprKind::Error => unreachable!("cannot lower error ast"),
 
-            ast::ExprKind::Ident(ident) => {
-                let obj_id = self
-                    .resolver
-                    .resolve(ident.sym)
-                    .expect("undefined variable. TODO: Better error message");
-                let var_id = obj_id.as_variable_id().expect("this isn't a variable");
-                Ok(Expr {
-                    span: ident.span,
-                    kind: ExprKind::Variable(var_id),
-                    ty: self.registry.get_variable(var_id).type_id,
-                })
-            }
+            ast::ExprKind::Ident(ident) => self.lower_variable(ident),
 
             ast::ExprKind::Literal(lit) => {
                 let lowered = self.lower_literal(lit)?;
                 Ok(Expr {
                     span: expr.span,
-                    ty: lowered.ty,
+                    type_id: lowered.ty,
                     kind: ExprKind::Literal(lowered),
                 })
             }
@@ -216,7 +209,7 @@ impl<'ctx> Lowerer<'ctx> {
 
             ast::ExprKind::Loop(loop_expr) => self.lower_loop(expr.span, loop_expr),
             ast::ExprKind::Break(break_expr) => self.lower_break(expr.span, break_expr),
-            ast::ExprKind::Continue(continue_expr) => self.lower_continue(expr.span, continue_expr),
+            ast::ExprKind::Continue => self.lower_continue(expr.span),
             ast::ExprKind::Return(return_expr) => self.lower_return(expr.span, return_expr),
 
             ast::ExprKind::FnCall(ident, args) => self.lower_fn_call(expr.span, ident, args),
@@ -225,7 +218,7 @@ impl<'ctx> Lowerer<'ctx> {
                 Ok(Expr {
                     span: expr.span,
                     kind: ExprKind::Block(block),
-                    ty,
+                    type_id: ty,
                 })
             }
 
@@ -280,32 +273,38 @@ impl<'ctx> Lowerer<'ctx> {
             | BinOp::Bor
             | BinOp::Bxor => {
                 // TODO: Eventually this should use our function call machinery
-                if !self.registry.get_type(left.ty).is_numeric() {
+                if !self.registry.get_type(left.type_id).is_numeric() {
                     return Err(LoweringError {
-                        kind: LoweringErrorKind::InvalidType(left.ty),
+                        kind: LoweringErrorKind::InvalidType(left.type_id),
                         span: left.span,
                     });
                 }
-                if !self.registry.get_type(right.ty).is_numeric() {
+                if !self.registry.get_type(right.type_id).is_numeric() {
                     return Err(LoweringError {
-                        kind: LoweringErrorKind::InvalidType(right.ty),
+                        kind: LoweringErrorKind::InvalidType(right.type_id),
                         span: right.span,
                     });
                 }
-                if left.ty != right.ty {
+                if left.type_id != right.type_id {
                     return Err(LoweringError {
-                        kind: LoweringErrorKind::TypeConflict { want: left.ty, got: right.ty },
+                        kind: LoweringErrorKind::TypeConflict {
+                            want: left.type_id,
+                            got: right.type_id,
+                        },
                         span: right.span,
                     });
                 }
 
-                left.ty
+                left.type_id
             }
 
             BinOp::Eq | BinOp::Neq => {
-                if left.ty != right.ty {
+                if left.type_id != right.type_id {
                     return Err(LoweringError {
-                        kind: LoweringErrorKind::TypeConflict { want: left.ty, got: right.ty },
+                        kind: LoweringErrorKind::TypeConflict {
+                            want: left.type_id,
+                            got: right.type_id,
+                        },
                         span: right.span,
                     });
                 }
@@ -314,21 +313,24 @@ impl<'ctx> Lowerer<'ctx> {
             }
 
             BinOp::Lt | BinOp::Leq | BinOp::Gt | BinOp::Geq => {
-                if !self.registry.get_type(left.ty).is_numeric() {
+                if !self.registry.get_type(left.type_id).is_numeric() {
                     return Err(LoweringError {
-                        kind: LoweringErrorKind::InvalidType(left.ty),
+                        kind: LoweringErrorKind::InvalidType(left.type_id),
                         span: left.span,
                     });
                 }
-                if !self.registry.get_type(right.ty).is_numeric() {
+                if !self.registry.get_type(right.type_id).is_numeric() {
                     return Err(LoweringError {
-                        kind: LoweringErrorKind::InvalidType(right.ty),
+                        kind: LoweringErrorKind::InvalidType(right.type_id),
                         span: right.span,
                     });
                 }
-                if left.ty != right.ty {
+                if left.type_id != right.type_id {
                     return Err(LoweringError {
-                        kind: LoweringErrorKind::TypeConflict { want: left.ty, got: right.ty },
+                        kind: LoweringErrorKind::TypeConflict {
+                            want: left.type_id,
+                            got: right.type_id,
+                        },
                         span: right.span,
                     });
                 }
@@ -337,27 +339,27 @@ impl<'ctx> Lowerer<'ctx> {
             }
 
             BinOp::Land | BinOp::Lor => {
-                if !self.registry.get_type(left.ty).is_boolean() {
+                if !self.registry.get_type(left.type_id).is_boolean() {
                     return Err(LoweringError {
-                        kind: LoweringErrorKind::InvalidType(left.ty),
+                        kind: LoweringErrorKind::InvalidType(left.type_id),
                         span: left.span,
                     });
                 }
-                if !self.registry.get_type(right.ty).is_boolean() {
+                if !self.registry.get_type(right.type_id).is_boolean() {
                     return Err(LoweringError {
-                        kind: LoweringErrorKind::InvalidType(right.ty),
+                        kind: LoweringErrorKind::InvalidType(right.type_id),
                         span: right.span,
                     });
                 }
 
-                left.ty
+                left.type_id
             }
         };
 
         Ok(Expr {
             span: (left.span.0, right.span.1),
             kind: ExprKind::Binary(op, Box::new(left), Box::new(right)),
-            ty,
+            type_id: ty,
         })
     }
 
@@ -372,40 +374,40 @@ impl<'ctx> Lowerer<'ctx> {
 
         let ty = match op {
             UnaryOp::Neg => {
-                if !self.registry.get_type(expr.ty).is_numeric() {
+                if !self.registry.get_type(expr.type_id).is_numeric() {
                     return Err(LoweringError {
-                        kind: LoweringErrorKind::InvalidType(expr.ty),
+                        kind: LoweringErrorKind::InvalidType(expr.type_id),
                         span: expr.span,
                     });
                 }
-                expr.ty
+                expr.type_id
             }
 
             UnaryOp::Lnot => {
-                if !self.registry.get_type(expr.ty).is_boolean() {
+                if !self.registry.get_type(expr.type_id).is_boolean() {
                     return Err(LoweringError {
-                        kind: LoweringErrorKind::InvalidType(expr.ty),
+                        kind: LoweringErrorKind::InvalidType(expr.type_id),
                         span: expr.span,
                     });
                 }
-                expr.ty
+                expr.type_id
             }
 
             UnaryOp::Bnot => {
-                if !self.registry.get_type(expr.ty).is_numeric() {
+                if !self.registry.get_type(expr.type_id).is_numeric() {
                     return Err(LoweringError {
-                        kind: LoweringErrorKind::InvalidType(expr.ty),
+                        kind: LoweringErrorKind::InvalidType(expr.type_id),
                         span: expr.span,
                     });
                 }
-                expr.ty
+                expr.type_id
             }
         };
 
         Ok(Expr {
             span: expr.span,
             kind: ExprKind::Unary(op, Box::new(expr)),
-            ty,
+            type_id: ty,
         })
     }
 
@@ -419,9 +421,12 @@ impl<'ctx> Lowerer<'ctx> {
         let expr = self.lower_expr(expr)?;
         if let Some(typepath) = typepath {
             let declared_type = self.resolve_typepath(typepath)?;
-            if declared_type.id != expr.ty {
+            if declared_type.id != expr.type_id {
                 return Err(LoweringError {
-                    kind: LoweringErrorKind::TypeConflict { want: declared_type.id, got: expr.ty },
+                    kind: LoweringErrorKind::TypeConflict {
+                        want: declared_type.id,
+                        got: expr.type_id,
+                    },
                     span: expr.span,
                 });
             }
@@ -429,7 +434,7 @@ impl<'ctx> Lowerer<'ctx> {
 
         let var_id = self
             .registry
-            .register_variable(Variable { type_id: expr.ty, ident: *ident });
+            .register_variable(Variable { type_id: expr.type_id, ident: *ident });
         self.resolver
             .define(ident.sym, ObjectId::Variable(var_id))
             .map_err(|err| match err {
@@ -441,7 +446,7 @@ impl<'ctx> Lowerer<'ctx> {
 
         Ok(Expr {
             span,
-            ty: self.registry.unit(),
+            type_id: self.registry.unit(),
             kind: ExprKind::Let(var_id, Box::new(expr)),
         })
     }
@@ -464,7 +469,7 @@ impl<'ctx> Lowerer<'ctx> {
 
         Ok(Expr {
             span,
-            ty: self.registry.unit(),
+            type_id: self.registry.unit(),
             kind: ExprKind::Set(var_id, Box::new(expr)),
         })
     }
@@ -474,7 +479,7 @@ impl<'ctx> Lowerer<'ctx> {
             span,
             kind: ExprKind::Loop(Box::new(self.lower_expr(expr)?)),
             // TODO: This type should be that of the break statement
-            ty: self.registry.unit(),
+            type_id: self.registry.unit(),
         })
     }
 
@@ -486,26 +491,17 @@ impl<'ctx> Lowerer<'ctx> {
         };
         Ok(Expr {
             span,
-            ty: self.registry.unit(),
+            type_id: self.registry.unit(),
             kind: ExprKind::Break(expr),
         })
     }
 
-    fn lower_continue(
-        &mut self,
-        span: Span,
-        expr: &Option<Box<ast::Expr>>,
-    ) -> LoweringResult<Expr> {
-        let expr = if let Some(expr) = expr {
-            Some(Box::new(self.lower_expr(expr)?))
-        } else {
-            None
-        };
+    fn lower_continue(&mut self, span: Span) -> LoweringResult<Expr> {
         Ok(Expr {
             span,
             // TODO: This type should be that of the break statement
-            ty: self.registry.unit(),
-            kind: ExprKind::Continue(expr),
+            type_id: self.registry.unit(),
+            kind: ExprKind::Continue,
         })
     }
 
@@ -518,7 +514,7 @@ impl<'ctx> Lowerer<'ctx> {
         Ok(Expr {
             span,
             // TODO: This should be noreturn or something maybe?
-            ty: self.registry.unit(),
+            type_id: self.registry.unit(),
             kind: ExprKind::Return(expr),
         })
     }
@@ -529,30 +525,40 @@ impl<'ctx> Lowerer<'ctx> {
         ident: &ast::Ident,
         args: &[ast::Expr],
     ) -> LoweringResult<Expr> {
-        let id = self.resolver.resolve(ident.sym).ok_or(LoweringError {
-            kind: LoweringErrorKind::UnknownVariable(*ident),
-            span: ident.span,
-        })?;
-        let id = id
-            .as_variable_id()
-            .expect("must be function. TODO: rework entire diagnostics");
+        let callee = self.lower_variable(ident)?;
+
         let mut lowered_args = Vec::with_capacity(args.len());
         for expr in args {
             lowered_args.push(self.lower_expr(expr)?);
         }
 
-        let var = self.registry.get_variable(id);
-        let TyKind::Fn(fn_) = &self.registry.get_type(var.type_id).kind else {
+        let TyKind::Fn(fn_) = &self.registry.get_type(callee.type_id).kind else {
             return Err(LoweringError {
-                kind: LoweringErrorKind::InvalidType(var.type_id),
+                kind: LoweringErrorKind::InvalidType(callee.type_id),
                 span,
             });
         };
 
         Ok(Expr {
             span,
-            ty: fn_.rtn,
-            kind: ExprKind::FnCall(id, lowered_args),
+            type_id: fn_.rtn,
+            kind: ExprKind::FnCall {
+                callee: Box::new(callee),
+                args: lowered_args,
+            },
+        })
+    }
+
+    fn lower_variable(&mut self, name: &ast::Ident) -> LoweringResult<Expr> {
+        let obj_id = self
+            .resolver
+            .resolve(name.sym)
+            .expect("undefined variable. TODO: Better error message");
+        let var_id = obj_id.as_variable_id().expect("this isn't a variable");
+        Ok(Expr {
+            span: name.span,
+            kind: ExprKind::Variable(var_id),
+            type_id: self.registry.get_variable(var_id).type_id,
         })
     }
 
@@ -624,7 +630,7 @@ impl<'ctx> Lowerer<'ctx> {
         let mut exprs = Vec::with_capacity(block.len());
         for expr in block.iter() {
             let expr = self.lower_expr(expr)?;
-            ty = expr.ty;
+            ty = expr.type_id;
             exprs.push(expr);
         }
         self.resolver.exit_scope();
@@ -639,11 +645,11 @@ impl<'ctx> Lowerer<'ctx> {
         else_expr: Option<&ast::Expr>,
     ) -> LoweringResult<Expr> {
         let cond = self.lower_expr(cond)?;
-        if !self.registry.get_type(cond.ty).is_boolean() {
+        if !self.registry.get_type(cond.type_id).is_boolean() {
             return Err(LoweringError {
                 kind: LoweringErrorKind::TypeConflict {
                     want: self.registry.bool(),
-                    got: cond.ty,
+                    got: cond.type_id,
                 },
                 span: cond.span,
             });
@@ -657,21 +663,21 @@ impl<'ctx> Lowerer<'ctx> {
         };
 
         if let Some(else_expr) = &else_expr {
-            if then_expr.ty != else_expr.ty {
+            if then_expr.type_id != else_expr.type_id {
                 return Err(LoweringError {
                     kind: LoweringErrorKind::TypeConflict {
-                        want: then_expr.ty,
-                        got: else_expr.ty,
+                        want: then_expr.type_id,
+                        got: else_expr.type_id,
                     },
                     span: else_expr.span,
                 });
             }
         } else {
-            if then_expr.ty != self.registry.unit() {
+            if then_expr.type_id != self.registry.unit() {
                 return Err(LoweringError {
                     kind: LoweringErrorKind::TypeConflict {
                         want: self.registry.unit(),
-                        got: then_expr.ty,
+                        got: then_expr.type_id,
                     },
                     span: then_expr.span,
                 });
@@ -680,7 +686,7 @@ impl<'ctx> Lowerer<'ctx> {
 
         Ok(Expr {
             span,
-            ty: then_expr.ty,
+            type_id: then_expr.type_id,
             kind: ExprKind::If {
                 cond: Box::new(cond),
                 then_expr: Box::new(then_expr),
