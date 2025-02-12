@@ -1,14 +1,12 @@
 pub mod lower;
 pub mod registry;
 
-use registry::DefId;
-
 use crate::{
     ast::{Ident, Span},
     intern::{Symbol, SymbolInterner},
 };
 
-use self::registry::{TypeId, VariableId};
+use self::registry::{DefId, TypeId, VariableId};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Module {
@@ -49,13 +47,13 @@ pub struct Expr {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExprKind {
-    Variable(VariableId),
     Literal(Literal),
     Binary(BinOp, Box<Expr>, Box<Expr>),
     Unary(UnaryOp, Box<Expr>),
 
     Let(VariableId, Box<Expr>),
     Set(VariableId, Box<Expr>),
+    Variable(VariableId),
 
     Loop(Box<Expr>),
     // TODO: Keep track of destination when I add labeled breaks
@@ -68,7 +66,7 @@ pub enum ExprKind {
         callee: Box<Expr>,
         args: Vec<Expr>,
     },
-    Block(Block),
+    Block(Vec<Expr>),
     If {
         cond: Box<Expr>,
         then_expr: Box<Expr>,
@@ -81,8 +79,6 @@ pub struct Variable {
     pub ident: Ident,
     pub type_id: TypeId,
 }
-
-pub type Block = Vec<Expr>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Literal {
@@ -104,7 +100,7 @@ pub enum LiteralKind {
 pub struct Fn {
     pub params: Vec<VariableId>,
     pub return_typepath: TypePath,
-    pub body: Vec<Expr>,
+    pub body: Box<Expr>,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

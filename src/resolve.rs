@@ -1,10 +1,8 @@
-use std::collections::{hash_map, HashMap};
-
-use crate::intern::Symbol;
+use std::{collections::HashMap, hash::Hash};
 
 #[derive(Debug)]
-pub struct Resolver<T> {
-    scopes: Vec<HashMap<Symbol, T>>,
+pub struct Resolver<K, V> {
+    scopes: Vec<HashMap<K, V>>,
 }
 
 #[derive(Debug)]
@@ -12,13 +10,13 @@ pub enum ResolverError {
     DuplicateItem,
 }
 
-impl<T> Resolver<T> {
+impl<K: Hash + Eq, V> Resolver<K, V> {
     pub fn new() -> Self {
         Self { scopes: vec![HashMap::new()] }
     }
 
-    // TODO: Think about having a with_scope rather than enter and exit scope... Better with error
-    // handling probably
+    // TODO: Make this with_scope rather than enter and exit scope... Better with error
+    // handling
     pub fn enter_scope(&mut self) {
         self.scopes.push(HashMap::new());
     }
@@ -27,18 +25,12 @@ impl<T> Resolver<T> {
         self.scopes.pop().expect("cannot remove last scope");
     }
 
-    pub fn resolve(&self, sym: Symbol) -> Option<&T> {
-        self.scopes.iter().rev().find_map(|scope| scope.get(&sym))
+    pub fn resolve(&self, key: &K) -> Option<&V> {
+        self.scopes.iter().rev().find_map(|scope| scope.get(key))
     }
 
-    pub fn define(&mut self, sym: Symbol, val: T) -> Result<(), ResolverError> {
+    pub fn define(&mut self, key: K, val: V) -> Option<V> {
         let current_scope = self.scopes.last_mut().expect("must have at least 1 scope");
-        match current_scope.entry(sym) {
-            hash_map::Entry::Vacant(slot) => {
-                slot.insert(val);
-                Ok(())
-            }
-            hash_map::Entry::Occupied(_) => Err(ResolverError::DuplicateItem),
-        }
+        current_scope.insert(key, val)
     }
 }

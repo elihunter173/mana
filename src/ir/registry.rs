@@ -10,9 +10,6 @@ use crate::{
 pub struct TypeId(usize);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct FunctionId(usize);
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct VariableId(usize);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]

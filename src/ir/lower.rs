@@ -1,6 +1,6 @@
 use crate::{
     ast::{self, IdentPath, Span},
-    resolve::{Resolver, ResolverError},
+    resolve::Resolver,
     ty::{FloatTy, FnTy, IntTy, TyKind, Type, UIntTy},
 };
 
@@ -50,7 +50,7 @@ pub fn lower_module(
 fn resolver_with_prelude(
     interner: &mut SymbolInterner,
     registry: &mut Registry,
-) -> Resolver<ObjectId> {
+) -> Resolver<Symbol, ObjectId> {
     let mut sym = |s: &str| interner.get_or_intern(s);
 
     let mut resolver = Resolver::new();
@@ -62,9 +62,10 @@ fn resolver_with_prelude(
         (sym("UInt"), registry.uint()),
         (sym("Float"), registry.float()),
     ] {
-        resolver
-            .define(sym, ObjectId::Type(ty_id))
-            .expect("no duplicate primitives");
+        assert!(
+            resolver.define(sym, ObjectId::Type(ty_id)).is_none(),
+            "no duplicate primitives"
+        );
     }
 
     // prelude
@@ -86,16 +87,17 @@ fn resolver_with_prelude(
         (sym("Float64"), TyKind::Float(FloatTy::F64)),
     ] {
         let type_id = registry.register_type(Type { kind: ty_kind });
-        resolver
-            .define(sym, ObjectId::Type(type_id))
-            .expect("no duplicates in prelude");
+        assert!(
+            resolver.define(sym, ObjectId::Type(type_id)).is_none(),
+            "no duplicates in prelude"
+        );
     }
 
     resolver
 }
 
 struct Lowerer<'ctx> {
-    resolver: Resolver<ObjectId>,
+    resolver: Resolver<Symbol, ObjectId>,
     registry: Registry,
     symbols: &'ctx SymbolInterner,
 }
@@ -129,7 +131,7 @@ impl<'ctx> Lowerer<'ctx> {
     fn resolve_typepath(&self, typepath: &IdentPath) -> LoweringResult<TypePath> {
         // TODO: This is a hack
         let sym = typepath.path[0].sym;
-        let obj = self.resolver.resolve(sym).ok_or(LoweringError {
+        let obj = self.resolver.resolve(&sym).ok_or(LoweringError {
             kind: LoweringErrorKind::UnknownType("TODO".to_owned()),
             span: typepath.span,
         })?;
@@ -213,14 +215,7 @@ impl<'ctx> Lowerer<'ctx> {
             ast::ExprKind::Return(return_expr) => self.lower_return(expr.span, return_expr),
 
             ast::ExprKind::FnCall(ident, args) => self.lower_fn_call(expr.span, ident, args),
-            ast::ExprKind::Block(block) => {
-                let (ty, block) = self.lower_block(block)?;
-                Ok(Expr {
-                    span: expr.span,
-                    kind: ExprKind::Block(block),
-                    type_id: ty,
-                })
-            }
+            ast::ExprKind::Block(block) => self.lower_block(block),
 
             ast::ExprKind::If { cond, then_expr, else_expr } => self.lower_if(
                 expr.span,
@@ -435,14 +430,16 @@ impl<'ctx> Lowerer<'ctx> {
         let var_id = self
             .registry
             .register_variable(Variable { type_id: expr.type_id, ident: *ident });
-        self.resolver
+        if self
+            .resolver
             .define(ident.sym, ObjectId::Variable(var_id))
-            .map_err(|err| match err {
-                ResolverError::DuplicateItem => LoweringError {
-                    kind: LoweringErrorKind::DuplicateItem,
-                    span: ident.span,
-                },
-            })?;
+            .is_some()
+        {
+            return Err(LoweringError {
+                kind: LoweringErrorKind::DuplicateItem,
+                span: ident.span,
+            });
+        }
 
         Ok(Expr {
             span,
@@ -459,7 +456,7 @@ impl<'ctx> Lowerer<'ctx> {
     ) -> LoweringResult<Expr> {
         let expr = self.lower_expr(expr)?;
 
-        let var_id = self.resolver.resolve(ident.sym).ok_or(LoweringError {
+        let var_id = self.resolver.resolve(&ident.sym).ok_or(LoweringError {
             kind: LoweringErrorKind::UnknownVariable(*ident),
             span: ident.span,
         })?;
@@ -550,10 +547,11 @@ impl<'ctx> Lowerer<'ctx> {
     }
 
     fn lower_variable(&mut self, name: &ast::Ident) -> LoweringResult<Expr> {
-        let obj_id = self
-            .resolver
-            .resolve(name.sym)
-            .expect("undefined variable. TODO: Better error message");
+        // TODO: I need to make it so that this does "tree shaking" where it evaluates defines as
+        // they are used
+        let Some(obj_id) = self.resolver.resolve(&name.sym) else {
+            panic!("undefined variable: {}", self.symbols.resolve(&name.sym));
+        };
         let var_id = obj_id.as_variable_id().expect("this isn't a variable");
         Ok(Expr {
             span: name.span,
@@ -601,13 +599,13 @@ impl<'ctx> Lowerer<'ctx> {
             params.push(var_id);
         }
 
-        let (body_ty, body) = self.lower_block(&fn_.body)?;
+        let body = self.lower_block(&fn_.body)?;
         let return_typepath = if let Some(typepath) = &fn_.return_typepath {
             let typepath = self.resolve_typepath(typepath)?;
-            if typepath.id != body_ty {
+            if typepath.id != body.type_id {
                 return Err(LoweringError {
-                    kind: LoweringErrorKind::TypeConflict { want: typepath.id, got: body_ty },
-                    span: body.last().map(|e| e.span).unwrap(),
+                    kind: LoweringErrorKind::TypeConflict { want: typepath.id, got: body.type_id },
+                    span: body.span,
                 });
             }
             typepath
@@ -621,10 +619,14 @@ impl<'ctx> Lowerer<'ctx> {
 
         self.resolver.exit_scope();
 
-        Ok(Fn { params, return_typepath, body })
+        Ok(Fn {
+            params,
+            return_typepath,
+            body: Box::new(body),
+        })
     }
 
-    fn lower_block(&mut self, block: &[ast::Expr]) -> LoweringResult<(TypeId, Vec<Expr>)> {
+    fn lower_block(&mut self, block: &[ast::Expr]) -> LoweringResult<Expr> {
         self.resolver.enter_scope();
         let mut ty = self.registry.unit();
         let mut exprs = Vec::with_capacity(block.len());
@@ -634,7 +636,12 @@ impl<'ctx> Lowerer<'ctx> {
             exprs.push(expr);
         }
         self.resolver.exit_scope();
-        Ok((ty, exprs))
+        let block = Expr {
+            span: (0, 0), // TODO
+            type_id: ty,
+            kind: ExprKind::Block(exprs),
+        };
+        Ok(block)
     }
 
     fn lower_if(

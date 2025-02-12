@@ -1,15 +1,19 @@
+use std::iter;
+
 use crate::{
     intern::SymbolInterner,
     ir::{
         self,
-        registry::{FunctionId, Registry},
+        registry::{Registry, VariableId},
         *,
     },
+    resolve::Resolver,
 };
 
 pub struct Machine<'ctx> {
     module: ir::Module,
 
+    variables: Resolver<VariableId, Val>,
     symbols: &'ctx SymbolInterner,
     registry: &'ctx Registry,
 }
@@ -17,6 +21,7 @@ pub struct Machine<'ctx> {
 #[derive(Debug)]
 enum EvalResult {
     Value(Val),
+    Continue,
     Break(Val),
     Return(Val),
 }
@@ -36,7 +41,12 @@ impl<'ctx> Machine<'ctx> {
         symbols: &'ctx SymbolInterner,
         registry: &'ctx Registry,
     ) -> Self {
-        Self { module, symbols, registry }
+        Self {
+            module,
+            variables: Resolver::new(),
+            symbols,
+            registry,
+        }
     }
 
     pub fn start(&mut self) {
@@ -58,32 +68,73 @@ impl<'ctx> Machine<'ctx> {
             })
             .expect("main must be defined");
 
-        println!("main returns {:?}", self.eval(main));
+        println!(
+            "main returns {:?}",
+            self.eval(&ir::Expr {
+                span: (0, 0), // TODO
+                kind: ExprKind::FnCall {
+                    callee: Box::new(main.clone()),
+                    args: Vec::new()
+                },
+                type_id: self.registry.unit(),
+            })
+        );
     }
 
     pub fn eval(&mut self, expr: &ir::Expr) -> EvalResult {
         match &expr.kind {
-            ir::ExprKind::Variable(variable_id) => todo!(),
             ir::ExprKind::Literal(literal) => EvalResult::Value(val_from_literal(literal)),
-
             ir::ExprKind::Binary(bin_op, left, right) => {
                 let left_val = flow!(self.eval(left));
                 let right_val = flow!(self.eval(right));
                 let val = self.eval_binary(*bin_op, left_val, right_val);
                 EvalResult::Value(val)
             }
-
             ir::ExprKind::Unary(unary_op, expr) => {
                 let pre_val = flow!(self.eval(expr));
                 let post_val = self.eval_unary(*unary_op, pre_val);
                 EvalResult::Value(post_val)
             }
 
-            ir::ExprKind::Let(variable_id, expr) => todo!(),
-            ir::ExprKind::Set(variable_id, expr) => todo!(),
-            ir::ExprKind::Loop(expr) => todo!(),
-            ir::ExprKind::Break(expr) => todo!(),
-            ir::ExprKind::Continue => todo!(),
+            ir::ExprKind::Let(variable_id, expr) => {
+                let val = flow!(self.eval(expr));
+                if self.variables.define(*variable_id, val).is_some() {
+                    panic!("overriding variable in let");
+                }
+                EvalResult::Value(Val::Unit)
+            }
+            ir::ExprKind::Set(variable_id, expr) => {
+                let val = flow!(self.eval(expr));
+                // TODO: This doesn't work if the variable is in a different level. Gahhhhh
+                // I think it's a bad idea that I had the resolver be generic and shared :dead:
+                if self.variables.define(*variable_id, val).is_none() {
+                    panic!("defining variable in set");
+                }
+                EvalResult::Value(Val::Unit)
+            }
+            ir::ExprKind::Variable(variable_id) => EvalResult::Value(
+                self.variables
+                    .resolve(variable_id)
+                    .expect("variable defined")
+                    .clone(),
+            ),
+
+            ir::ExprKind::Loop(expr) => loop {
+                match self.eval(expr) {
+                    EvalResult::Value(_) => continue,
+                    EvalResult::Continue => continue,
+                    EvalResult::Break(val) => break EvalResult::Value(val),
+                    EvalResult::Return(val) => break EvalResult::Return(val),
+                }
+            },
+            ir::ExprKind::Break(expr) => {
+                if let Some(expr) = expr {
+                    EvalResult::Break(flow!(self.eval(expr)))
+                } else {
+                    EvalResult::Break(Val::Unit)
+                }
+            }
+            ir::ExprKind::Continue => EvalResult::Continue,
             ir::ExprKind::Return(expr) => {
                 let val = if let Some(expr) = expr {
                     flow!(self.eval(expr))
@@ -94,10 +145,27 @@ impl<'ctx> Machine<'ctx> {
             }
 
             ir::ExprKind::FnCall { callee, args } => match flow!(self.eval(callee)) {
-                Val::Func(function_id) => todo!("register variables"),
+                Val::Func(func) => {
+                    self.variables.enter_scope();
+                    for (param, arg) in iter::zip(func.params.iter().copied(), args) {
+                        let val = flow!(self.eval(arg));
+                        self.variables.define(param, val);
+                    }
+                    let rtn = self.eval(&func.body);
+                    self.variables.exit_scope();
+                    rtn
+                }
                 _ => panic!("type error"),
             },
-            ir::ExprKind::Block(exprs) => todo!(),
+            ir::ExprKind::Block(exprs) => {
+                self.variables.enter_scope();
+                let mut last = Val::Unit;
+                for expr in exprs {
+                    last = flow!(self.eval(expr));
+                }
+                self.variables.exit_scope();
+                EvalResult::Value(last)
+            }
             ir::ExprKind::If { cond, then_expr, else_expr } => match flow!(self.eval(cond)) {
                 Val::Bool(true) => self.eval(&then_expr),
                 Val::Bool(false) => {
@@ -115,6 +183,19 @@ impl<'ctx> Machine<'ctx> {
     fn eval_binary(&mut self, bin_op: BinOp, left: Val, right: Val) -> Val {
         match bin_op {
             BinOp::Add => match (left, right) {
+                (Val::UInt8(l), Val::UInt8(r)) => Val::UInt8(l.wrapping_add(r)),
+                (Val::UInt16(l), Val::UInt16(r)) => Val::UInt16(l.wrapping_add(r)),
+                (Val::UInt32(l), Val::UInt32(r)) => Val::UInt32(l.wrapping_add(r)),
+                (Val::UInt64(l), Val::UInt64(r)) => Val::UInt64(l.wrapping_add(r)),
+
+                (Val::Int8(l), Val::Int8(r)) => Val::Int8(l.wrapping_add(r)),
+                (Val::Int16(l), Val::Int16(r)) => Val::Int16(l.wrapping_add(r)),
+                (Val::Int32(l), Val::Int32(r)) => Val::Int32(l.wrapping_add(r)),
+                (Val::Int64(l), Val::Int64(r)) => Val::Int64(l.wrapping_add(r)),
+
+                (Val::Float32(l), Val::Float32(r)) => Val::Float32(l + r),
+                (Val::Float64(l), Val::Float64(r)) => Val::Float64(l + r),
+
                 _ => panic!("type error"),
             },
 
@@ -151,21 +232,99 @@ impl<'ctx> Machine<'ctx> {
             },
 
             BinOp::Eq => match (left, right) {
+                (Val::UInt8(l), Val::UInt8(r)) => Val::Bool(l == r),
+                (Val::UInt16(l), Val::UInt16(r)) => Val::Bool(l == r),
+                (Val::UInt32(l), Val::UInt32(r)) => Val::Bool(l == r),
+                (Val::UInt64(l), Val::UInt64(r)) => Val::Bool(l == r),
+
+                (Val::Int8(l), Val::Int8(r)) => Val::Bool(l == r),
+                (Val::Int16(l), Val::Int16(r)) => Val::Bool(l == r),
+                (Val::Int32(l), Val::Int32(r)) => Val::Bool(l == r),
+                (Val::Int64(l), Val::Int64(r)) => Val::Bool(l == r),
+
+                (Val::Float32(l), Val::Float32(r)) => Val::Bool(l == r),
+                (Val::Float64(l), Val::Float64(r)) => Val::Bool(l == r),
+
                 _ => panic!("type error"),
             },
             BinOp::Neq => match (left, right) {
+                (Val::UInt8(l), Val::UInt8(r)) => Val::Bool(l != r),
+                (Val::UInt16(l), Val::UInt16(r)) => Val::Bool(l != r),
+                (Val::UInt32(l), Val::UInt32(r)) => Val::Bool(l != r),
+                (Val::UInt64(l), Val::UInt64(r)) => Val::Bool(l != r),
+
+                (Val::Int8(l), Val::Int8(r)) => Val::Bool(l != r),
+                (Val::Int16(l), Val::Int16(r)) => Val::Bool(l != r),
+                (Val::Int32(l), Val::Int32(r)) => Val::Bool(l != r),
+                (Val::Int64(l), Val::Int64(r)) => Val::Bool(l != r),
+
+                (Val::Float32(l), Val::Float32(r)) => Val::Bool(l != r),
+                (Val::Float64(l), Val::Float64(r)) => Val::Bool(l != r),
+
                 _ => panic!("type error"),
             },
             BinOp::Lt => match (left, right) {
+                (Val::UInt8(l), Val::UInt8(r)) => Val::Bool(l < r),
+                (Val::UInt16(l), Val::UInt16(r)) => Val::Bool(l < r),
+                (Val::UInt32(l), Val::UInt32(r)) => Val::Bool(l < r),
+                (Val::UInt64(l), Val::UInt64(r)) => Val::Bool(l < r),
+
+                (Val::Int8(l), Val::Int8(r)) => Val::Bool(l < r),
+                (Val::Int16(l), Val::Int16(r)) => Val::Bool(l < r),
+                (Val::Int32(l), Val::Int32(r)) => Val::Bool(l < r),
+                (Val::Int64(l), Val::Int64(r)) => Val::Bool(l < r),
+
+                (Val::Float32(l), Val::Float32(r)) => Val::Bool(l < r),
+                (Val::Float64(l), Val::Float64(r)) => Val::Bool(l < r),
+
                 _ => panic!("type error"),
             },
             BinOp::Leq => match (left, right) {
+                (Val::UInt8(l), Val::UInt8(r)) => Val::Bool(l <= r),
+                (Val::UInt16(l), Val::UInt16(r)) => Val::Bool(l <= r),
+                (Val::UInt32(l), Val::UInt32(r)) => Val::Bool(l <= r),
+                (Val::UInt64(l), Val::UInt64(r)) => Val::Bool(l <= r),
+
+                (Val::Int8(l), Val::Int8(r)) => Val::Bool(l <= r),
+                (Val::Int16(l), Val::Int16(r)) => Val::Bool(l <= r),
+                (Val::Int32(l), Val::Int32(r)) => Val::Bool(l <= r),
+                (Val::Int64(l), Val::Int64(r)) => Val::Bool(l <= r),
+
+                (Val::Float32(l), Val::Float32(r)) => Val::Bool(l <= r),
+                (Val::Float64(l), Val::Float64(r)) => Val::Bool(l <= r),
+
                 _ => panic!("type error"),
             },
             BinOp::Gt => match (left, right) {
+                (Val::UInt8(l), Val::UInt8(r)) => Val::Bool(l > r),
+                (Val::UInt16(l), Val::UInt16(r)) => Val::Bool(l > r),
+                (Val::UInt32(l), Val::UInt32(r)) => Val::Bool(l > r),
+                (Val::UInt64(l), Val::UInt64(r)) => Val::Bool(l > r),
+
+                (Val::Int8(l), Val::Int8(r)) => Val::Bool(l > r),
+                (Val::Int16(l), Val::Int16(r)) => Val::Bool(l > r),
+                (Val::Int32(l), Val::Int32(r)) => Val::Bool(l > r),
+                (Val::Int64(l), Val::Int64(r)) => Val::Bool(l > r),
+
+                (Val::Float32(l), Val::Float32(r)) => Val::Bool(l > r),
+                (Val::Float64(l), Val::Float64(r)) => Val::Bool(l > r),
+
                 _ => panic!("type error"),
             },
             BinOp::Geq => match (left, right) {
+                (Val::UInt8(l), Val::UInt8(r)) => Val::Bool(l >= r),
+                (Val::UInt16(l), Val::UInt16(r)) => Val::Bool(l >= r),
+                (Val::UInt32(l), Val::UInt32(r)) => Val::Bool(l >= r),
+                (Val::UInt64(l), Val::UInt64(r)) => Val::Bool(l >= r),
+
+                (Val::Int8(l), Val::Int8(r)) => Val::Bool(l >= r),
+                (Val::Int16(l), Val::Int16(r)) => Val::Bool(l >= r),
+                (Val::Int32(l), Val::Int32(r)) => Val::Bool(l >= r),
+                (Val::Int64(l), Val::Int64(r)) => Val::Bool(l >= r),
+
+                (Val::Float32(l), Val::Float32(r)) => Val::Bool(l >= r),
+                (Val::Float64(l), Val::Float64(r)) => Val::Bool(l >= r),
+
                 _ => panic!("type error"),
             },
         }
@@ -194,16 +353,16 @@ impl<'ctx> Machine<'ctx> {
 }
 
 fn val_from_literal(literal: &Literal) -> Val {
-    match literal.kind {
+    match &literal.kind {
         LiteralKind::Bool(_) => todo!(),
-        LiteralKind::Int(v) => Val::Int32(v as _),
+        LiteralKind::Int(v) => Val::Int32(*v as _),
         LiteralKind::Float(symbol) => todo!(),
-        LiteralKind::Fn(_) => todo!("these should already be handled by this point"),
+        LiteralKind::Fn(func) => Val::Func(func.clone()),
     }
 }
 
 /// Mana value
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Val {
     Unit,
     Bool(bool),
@@ -221,5 +380,5 @@ enum Val {
     Float32(f32),
     Float64(f64),
     // others
-    Func(FunctionId),
+    Func(ir::Fn),
 }

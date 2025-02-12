@@ -1415,21 +1415,26 @@ fn the_answer(): UInt {
 }";
         let (got, mut sym) = run_parser(code, |p| p.item());
 
-        let want = Ok(Item::FnDef(FnDef {
+        let want = Some(Item::Def(Def {
+            span: (1, 33),
             name: Ident {
                 sym: sym("the_answer"),
                 span: (4, 14),
             },
-            params: vec![],
-            return_typepath: Some(IdentPath {
-                path: vec![Ident { sym: sym("UInt"), span: (18, 22) }],
-                span: (18, 22),
-            }),
-            body: vec![Expr {
-                kind: ExprKind::Literal(LiteralKind::Int(42)),
-                span: (29, 31),
-            }],
-            span: (1, 33),
+            value: Expr {
+                span: (0, 0),
+                kind: ExprKind::Literal(LiteralKind::Fn(Fn {
+                    params: vec![],
+                    return_typepath: Some(IdentPath {
+                        path: vec![Ident { sym: sym("UInt"), span: (18, 22) }],
+                        span: (18, 22),
+                    }),
+                    body: vec![Expr {
+                        kind: ExprKind::Literal(LiteralKind::Int(42)),
+                        span: (29, 31),
+                    }],
+                })),
+            },
         }));
         assert_eq!(got, want);
     }
