@@ -1,7 +1,0 @@
-def main = fn(): Int {
-    let a = {
-        let b = 2
-        b + 2
-    }
-    a + 1
-}

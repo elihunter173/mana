@@ -49,7 +49,7 @@ impl<'ctx> Machine<'ctx> {
         }
     }
 
-    pub fn start(&mut self) {
+    pub fn main(&mut self) -> Val {
         let main = self.symbols.get("main").expect("main must be defined");
 
         let main = self
@@ -68,17 +68,13 @@ impl<'ctx> Machine<'ctx> {
             })
             .expect("main must be defined");
 
-        println!(
-            "main returns {:?}",
-            self.eval(&ir::Expr {
-                span: (0, 0), // TODO
-                kind: ExprKind::FnCall {
-                    callee: Box::new(main.clone()),
-                    args: Vec::new()
-                },
-                type_id: self.registry.unit(),
-            })
-        );
+        // TODO: I should be passing already evaluated IR here
+        let ExprKind::Literal(Literal { kind: LiteralKind::Fn(ref main), .. }) = main.kind else {
+            panic!("main must be a function");
+        };
+
+        // TODO: Call the function more easily
+        self.eval_fn_call(main.clone(), vec![])
     }
 
     pub fn eval(&mut self, expr: &ir::Expr) -> EvalResult {
@@ -146,14 +142,12 @@ impl<'ctx> Machine<'ctx> {
 
             ir::ExprKind::FnCall { callee, args } => match flow!(self.eval(callee)) {
                 Val::Func(func) => {
-                    self.variables.enter_scope();
-                    for (param, arg) in iter::zip(func.params.iter().copied(), args) {
+                    let mut arg_vals = Vec::with_capacity(args.len());
+                    for arg in args {
                         let val = flow!(self.eval(arg));
-                        self.variables.define(param, val);
+                        arg_vals.push(val);
                     }
-                    let rtn = self.eval(&func.body);
-                    self.variables.exit_scope();
-                    rtn
+                    EvalResult::Value(self.eval_fn_call(func, arg_vals))
                 }
                 _ => panic!("type error"),
             },
@@ -350,6 +344,21 @@ impl<'ctx> Machine<'ctx> {
             UnaryOp::Bnot => todo!(),
         }
     }
+
+    fn eval_fn_call(&mut self, func: ir::Fn, args: Vec<Val>) -> Val {
+        self.variables.enter_scope();
+        for (param, arg) in iter::zip(func.params.iter().copied(), args) {
+            self.variables.define(param, arg);
+        }
+        let rtn = match self.eval(&func.body) {
+            EvalResult::Value(val) => val,
+            EvalResult::Continue => panic!("can't continue outside of loop"),
+            EvalResult::Break(val) => panic!("can't break outside of loop"),
+            EvalResult::Return(val) => val,
+        };
+        self.variables.exit_scope();
+        rtn
+    }
 }
 
 fn val_from_literal(literal: &Literal) -> Val {
@@ -363,7 +372,7 @@ fn val_from_literal(literal: &Literal) -> Val {
 
 /// Mana value
 #[derive(Debug, Clone)]
-enum Val {
+pub(crate) enum Val {
     Unit,
     Bool(bool),
     // uints
